@@ -38,7 +38,7 @@ export default function IDEIntegration({
             setExtensionInfo(ext);
           }
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setBackendAlive(false);
         }

@@ -203,3 +203,56 @@ test("detects an undefined alias used with wildcard", () => {
     )
   );
 });
+
+test("accepts a valid subquery with isolated scope without false ambiguous column errors", () => {
+  const result = validateSelectQuery(
+    "SELECT id, name FROM students WHERE department_id IN (SELECT id FROM departments);",
+    schema
+  );
+
+  assert.equal(result.status, "valid");
+  assert.equal(result.findings.length, 0);
+});
+
+test("detects a nonexistent table in a subquery", () => {
+  const result = validateSelectQuery(
+    "SELECT id, name FROM students WHERE department_id IN (SELECT id FROM nonexistent_departments);",
+    schema
+  );
+
+  assert.equal(result.status, "invalid");
+  assert.ok(
+    result.findings.some(
+      (finding) =>
+        finding.code === "TABLE_NOT_FOUND" &&
+        finding.table === "nonexistent_departments"
+    )
+  );
+});
+
+test("detects a nonexistent column in a subquery", () => {
+  const result = validateSelectQuery(
+    "SELECT id, name FROM students WHERE department_id IN (SELECT nonexistent_col FROM departments);",
+    schema
+  );
+
+  assert.equal(result.status, "invalid");
+  assert.ok(
+    result.findings.some(
+      (finding) =>
+        finding.code === "COLUMN_NOT_FOUND" &&
+        finding.column === "nonexistent_col"
+    )
+  );
+});
+
+test("accepts a correlated subquery referencing parent table aliases", () => {
+  const result = validateSelectQuery(
+    "SELECT s.id, s.name FROM students s WHERE department_id IN (SELECT d.id FROM departments d WHERE d.name = s.name);",
+    schema
+  );
+
+  assert.equal(result.status, "valid");
+  assert.equal(result.findings.length, 0);
+});
+

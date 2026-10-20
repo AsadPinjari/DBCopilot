@@ -45,14 +45,14 @@ DB Copilot is designed with a defense-in-depth security model to ensure safe han
 ## 3. Archive & Codebase Ingestion Security
 
 ### ZIP Slip & Path Traversal Guards
-- Extracted archive entries are normalized using `path.normalize()`.
-- Any entry resolving outside the designated extraction directory or containing path traversal sequences (`..`, `../`, `..\`) is rejected immediately.
+- Extracted archive entries are normalized using standard path utilities.
+- Any entry resolving with absolute paths (`/`, `C:`) or containing path traversal sequences (`..`, `../`, `..\`) is skipped silently without disk writes or execution.
 
 ### ZIP Bomb & Resource Exhaustion Defense
-- **Maximum File Count**: 200 files per archive.
-- **Maximum Extracted Size**: 20 MB total uncompressed payload.
-- **Maximum Nesting Depth**: 10 directory levels.
-- **Payload Timeouts**: Archive processing operations are bounded by execution timeouts.
+- **Maximum File Count**: 1,000 files per archive.
+- **Maximum Per-File Size**: 1 MB per source file.
+- **Maximum Scanned Source Size**: 10 MB total scanned source payload.
+- **Maximum Uncompressed Archive Size**: 50 MB total expanded size guard.
 
 ### Execution Isolation
 - Uploaded source code is parsed exclusively via static AST / regex analyzers.
@@ -64,11 +64,11 @@ DB Copilot is designed with a defense-in-depth security model to ensure safe han
 
 ### Static Validation Separation
 - Query validation is performed through AST parsing, dialect lexical analysis, and schema cross-referencing. DB Copilot **never executes user SQL queries against the database** to determine validity.
-- Dialect-aware adapters normalize parameter markers (`$1`, `?`, `:name`) to prevent false positives and SQL injection vulnerabilities during static inspection.
+- Dialect-aware adapters normalize parameter markers (`$1`, `?`, `:name`) to prevent false positives during static inspection.
 
 ### Non-Destructive Operations
 - AI-generated SQL fixes and schema migrations are presented as advisory suggestions or diffs. They are never automatically executed against the connected database.
-- Explicit approval and human review are required for any database mutation.
+- Explicit approval and human review are required for any file modifications in VS Code or database mutations.
 
 ---
 
@@ -79,21 +79,24 @@ Every HTTP response is guarded with standard security headers:
 - `X-Content-Type-Options: nosniff` (MIME sniffing prevention)
 - `X-Frame-Options: DENY` (Clickjacking prevention)
 - `X-XSS-Protection: 1; mode=block`
-- `Strict-Transport-Security: max-age=31536000; includeSubDomains` (when served over TLS)
+- `Referrer-Policy: strict-origin-when-cross-origin`
 
 ### Request Rate Limiting & Size Bounds
-- Global IP-based rate limiting (100 requests per 15-minute window for analysis endpoints).
+- Global IP-based rate limiting (120 requests per 1-minute window).
 - JSON body payload cap of **2 MB** to prevent denial-of-service memory exhaustion.
 - Maximum SQL query string limit of **10,000 characters**.
 
 ---
 
-## 6. Multi-User & Production Deployment Recommendations
+## 6. Authentication & Session Authorization Reality
 
-For production multi-tenant deployments:
-1. **Shared Session Store**: Transition in-memory session maps to an authenticated, encrypted Redis cluster or database store.
-2. **User Authentication**: Terminate TLS at a reverse proxy and bind `sessionId` and `authToken` to authenticated user identities (OAuth2 / OIDC).
-3. **Database Network Isolation**: Ensure DB Copilot connects to databases over private VPCs, WireGuard tunnels, or TLS-encrypted connections.
+### Important Release Limitation:
+- **Developer Session Tokens**: In this release candidate, a `sessionId` is a cryptographically random token (256 bits) representing an ephemeral database workspace session. **A session ID is not user authentication or multi-tenant authorization.**
+- **Single-Tenant / Local Tooling**: DB Copilot is built for local development and private team networks. There is no built-in user account table, RBAC, or SSO identity provider.
+- **Production Deployment Recommendations**:
+  1. Do not expose the DB Copilot backend to the public internet without an authenticating reverse proxy (e.g. Cloudflare Access, OAuth2 Proxy, AWS Cognito).
+  2. For multi-tenant environments, bind session tokens to authenticated user identities.
+  3. Ensure DB Copilot connects to live databases over private VPCs, localhost, or TLS-encrypted connections.
 
 ---
 

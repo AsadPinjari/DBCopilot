@@ -83,6 +83,7 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
         "connections",
       ];
       if (candidate && validViews.includes(candidate)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setActiveView(candidate);
       }
     }

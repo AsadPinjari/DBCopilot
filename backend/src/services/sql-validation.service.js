@@ -115,121 +115,168 @@ function validateSelectQuery(sql, schema) {
   }
 
   const findings = [];
-  const tableAliases = new Map();
 
-  // Step 1: Resolve each table and its alias.
-  for (const source of ast.from) {
-    if (!source || typeof source.table !== "string") {
-      return unsupportedResult(
-        "Subqueries and derived tables in FROM are not supported yet."
-      );
-    }
-
-    const tableName = normalizeName(source.table);
-    const table = getTable(schema, tableName);
-
-    if (!table) {
-      findings.push(
-        makeFinding(
-          "TABLE_NOT_FOUND",
-          `Table '${source.table}' does not exist in the connected database schema.`,
-          { table: source.table }
-        )
-      );
-
-      continue;
-    }
-
-    const alias = normalizeName(source.as || source.table);
-
-    tableAliases.set(alias, {
-      tableName: source.table,
-      table,
-    });
-  }
-
-  // Step 2: Validate a column reference against the schema.
-  function validateColumn(node) {
-    if (!node || node.type !== "column_ref") {
+  function validateScope(selectAst, parentAliases = new Map()) {
+    if (!selectAst || selectAst.type !== "select") {
       return;
     }
 
-    const columnName =
-      typeof node.column === "string"
-        ? node.column
-        : "";
+    if (!Array.isArray(selectAst.from) || selectAst.from.length === 0) {
+      findings.push(
+        makeFinding("UNSUPPORTED_SQL", "SELECT queries without a FROM clause are not supported yet.")
+      );
+      return;
+    }
 
-    
-const qualifier = normalizeName(node.table);
+    const currentAliases = new Map(parentAliases);
+    const localAliases = new Map();
 
-// For table.* check that the table alias exists first.
-if (columnName === "*") {
-  if (qualifier && !tableAliases.has(qualifier)) {
-    findings.push(
-      makeFinding(
-        "UNKNOWN_TABLE_ALIAS",
-        `Table alias '${node.table}' is not defined in the FROM clause.`,
-        {
-          alias: node.table,
-          column: columnName,
-        }
-      )
-    );
-  }
-
-  return;
-}
-
-// Ignore an empty column reference.
-if (!columnName) {
-  return;
-}
-
-
-    if (qualifier) {
-      const resolved = tableAliases.get(qualifier);
-
-      if (!resolved) {
+    // Step 1: Resolve each table in the current scope
+    for (const source of selectAst.from) {
+      if (!source || typeof source.table !== "string") {
         findings.push(
-          makeFinding(
-            "UNKNOWN_TABLE_ALIAS",
-            `Table alias '${node.table}' is not defined in the FROM clause.`,
-            {
-              alias: node.table,
-              column: columnName,
-            }
-          )
+          makeFinding("UNSUPPORTED_SQL", "Subqueries and derived tables in FROM are not supported yet.")
         );
-
         return;
       }
 
-      if (!getColumn(resolved.table, columnName)) {
+      const tableName = normalizeName(source.table);
+      const table = getTable(schema, tableName);
+
+      if (!table) {
         findings.push(
           makeFinding(
-            "COLUMN_NOT_FOUND",
-            `Column '${columnName}' does not exist in table '${resolved.tableName}'.`,
+            "TABLE_NOT_FOUND",
+            `Table '${source.table}' does not exist in the connected database schema.`,
+            { table: source.table }
+          )
+        );
+        continue;
+      }
+
+      const alias = normalizeName(source.as || source.table);
+      const entry = {
+        tableName: source.table,
+        table,
+      };
+
+      localAliases.set(alias, entry);
+      currentAliases.set(alias, entry);
+    }
+
+    // Step 2: Validate a column reference in this scope
+    function validateColumn(node) {
+      if (!node || node.type !== "column_ref") {
+        return;
+      }
+
+      const columnName =
+        typeof node.column === "string" ? node.column : "";
+      const qualifier = normalizeName(node.table);
+
+      if (columnName === "*") {
+        if (qualifier && !currentAliases.has(qualifier)) {
+          findings.push(
+            makeFinding(
+              "UNKNOWN_TABLE_ALIAS",
+              `Table alias '${node.table}' is not defined in the FROM clause.`,
+              {
+                alias: node.table,
+                column: columnName,
+              }
+            )
+          );
+        }
+        return;
+      }
+
+      if (!columnName) {
+        return;
+      }
+
+      if (qualifier) {
+        const resolved = currentAliases.get(qualifier);
+        if (!resolved) {
+          findings.push(
+            makeFinding(
+              "UNKNOWN_TABLE_ALIAS",
+              `Table alias '${node.table}' is not defined in the FROM clause.`,
+              {
+                alias: node.table,
+                column: columnName,
+              }
+            )
+          );
+          return;
+        }
+
+        if (!getColumn(resolved.table, columnName)) {
+          findings.push(
+            makeFinding(
+              "COLUMN_NOT_FOUND",
+              `Column '${columnName}' does not exist in table '${resolved.tableName}'.`,
+              {
+                table: resolved.tableName,
+                column: columnName,
+              }
+            )
+          );
+        }
+        return;
+      }
+
+      // Check local scope first to avoid cross-scope ambiguity
+      const matchingLocal = [];
+      for (const [alias, resolved] of localAliases.entries()) {
+        if (getColumn(resolved.table, columnName)) {
+          matchingLocal.push({ alias, ...resolved });
+        }
+      }
+
+      if (matchingLocal.length === 1) {
+        return;
+      }
+
+      if (matchingLocal.length > 1) {
+        findings.push(
+          makeFinding(
+            "AMBIGUOUS_COLUMN",
+            `Column '${columnName}' exists in multiple tables. Specify its table alias.`,
             {
-              table: resolved.tableName,
               column: columnName,
+              tables: matchingLocal.map((item) => item.tableName),
             }
           )
         );
+        return;
       }
 
-      return;
-    }
-
-    // An unqualified column must exist in exactly one source table.
-    const matchingTables = [];
-
-    for (const [alias, resolved] of tableAliases.entries()) {
-      if (getColumn(resolved.table, columnName)) {
-        matchingTables.push({ alias, ...resolved });
+      // Check outer parent scope for correlated references
+      const matchingParent = [];
+      for (const [alias, resolved] of parentAliases.entries()) {
+        if (getColumn(resolved.table, columnName)) {
+          matchingParent.push({ alias, ...resolved });
+        }
       }
-    }
 
-    if (matchingTables.length === 0) {
+      if (matchingParent.length === 1) {
+        return;
+      }
+
+      if (matchingParent.length > 1) {
+        findings.push(
+          makeFinding(
+            "AMBIGUOUS_COLUMN",
+            `Column '${columnName}' exists in multiple tables. Specify its table alias.`,
+            {
+              column: columnName,
+              tables: matchingParent.map((item) => item.tableName),
+            }
+          )
+        );
+        return;
+      }
+
       findings.push(
         makeFinding(
           "COLUMN_NOT_FOUND",
@@ -237,70 +284,64 @@ if (!columnName) {
           { column: columnName }
         )
       );
-    } else if (matchingTables.length > 1) {
-      findings.push(
-        makeFinding(
-          "AMBIGUOUS_COLUMN",
-          `Column '${columnName}' exists in multiple tables. Specify its table alias.`,
-          {
-            column: columnName,
-            tables: matchingTables.map(
-              (item) => item.tableName
-            ),
-          }
-        )
-      );
-    }
-  }
-
-  // Step 3: Traverse expressions and validate column references.
-  // Do not traverse table definitions or unrelated metadata.
-  function walkExpression(node) {
-    if (!node || typeof node !== "object") {
-      return;
     }
 
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        walkExpression(item);
-      }
-      return;
-    }
-
-    if (node.type === "column_ref") {
-      validateColumn(node);
-      return;
-    }
-
-    for (const [key, value] of Object.entries(node)) {
-      if (
-        key === "from" ||
-        key === "table" ||
-        key === "db" ||
-        key === "as"
-      ) {
-        continue;
+    // Step 3: Traverse expressions within this scope
+    function walkExpression(node) {
+      if (!node || typeof node !== "object") {
+        return;
       }
 
-      if (value && typeof value === "object") {
-        walkExpression(value);
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          walkExpression(item);
+        }
+        return;
+      }
+
+      if (node.type === "column_ref") {
+        validateColumn(node);
+        return;
+      }
+
+      // Recursively validate subquery with child scope
+      if (node.ast && typeof node.ast === "object" && node.ast.type === "select") {
+        validateScope(node.ast, currentAliases);
+        return;
+      }
+
+      for (const [key, value] of Object.entries(node)) {
+        if (
+          key === "from" ||
+          key === "table" ||
+          key === "db" ||
+          key === "as"
+        ) {
+          continue;
+        }
+
+        if (value && typeof value === "object") {
+          walkExpression(value);
+        }
       }
     }
+
+    walkExpression(selectAst.columns);
+
+    for (const source of selectAst.from) {
+      if (source && source.on) {
+        walkExpression(source.on);
+      }
+    }
+
+    walkExpression(selectAst.where);
+    walkExpression(selectAst.groupby);
+    walkExpression(selectAst.having);
+    walkExpression(selectAst.orderby);
+    walkExpression(selectAst.limit);
   }
 
-  // SELECT expressions, JOIN conditions, WHERE, GROUP BY,
-  // HAVING, ORDER BY and LIMIT expressions.
-  walkExpression(ast.columns);
-
-  for (const source of ast.from) {
-    walkExpression(source.on);
-  }
-
-  walkExpression(ast.where);
-  walkExpression(ast.groupby);
-  walkExpression(ast.having);
-  walkExpression(ast.orderby);
-  walkExpression(ast.limit);
+  validateScope(ast);
 
   // Remove duplicate findings.
   const uniqueFindings = [
@@ -312,9 +353,15 @@ if (!columnName) {
     ).values(),
   ];
 
+  const hasUnsupported = uniqueFindings.some((f) => f.code === "UNSUPPORTED_SQL");
+
   return {
-    status: uniqueFindings.length > 0 ? "invalid" : "valid",
-    supported: true,
+    status: hasUnsupported
+      ? "unsupported"
+      : uniqueFindings.length > 0
+      ? "invalid"
+      : "valid",
+    supported: !hasUnsupported,
     findings: uniqueFindings,
   };
 }

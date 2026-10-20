@@ -147,9 +147,6 @@ export default function SchemaDrift({
     }
 
     // Compare with live tables
-    const liveTableNames = tables.map((t) =>
-      (t.name ?? t.tableName ?? "").toLowerCase()
-    );
     const unreferencedLiveTables = tables.filter((t) => {
       const name = (t.name ?? t.tableName ?? "").toLowerCase();
       return name && !referencedTablesInCode.has(name);

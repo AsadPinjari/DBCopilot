@@ -109,7 +109,7 @@ npm install
 cp .env.example .env   # On Windows: copy .env.example .env
 ```
 
-Edit `backend/.env` with your credentials and Google Gemini API key:
+Edit `backend/.env` with your credentials and AI provider key (Groq, Gemini, or OpenAI/Ollama):
 
 ```ini
 PORT=5000
@@ -121,8 +121,13 @@ DB_USER=root
 DB_PASSWORD=your_mysql_password
 DB_NAME=ordermng
 
+# Fast free AI provider (~1.7s latency, 14,400 free requests/day):
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-120b
+
+# Or Google Gemini (auto-fallbacks across stable flash-lite endpoints):
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
 ```
 
 Start the backend:
@@ -151,20 +156,22 @@ You can install the pre-built VSIX file directly into VS Code:
 code --install-extension vscode-extension/dbcopilot-1.0.0.vsix
 ```
 
+Or download it directly from the Web Application at `http://localhost:3001/ide` (or via `GET /api/extension/download`).
+
 Alternatively, open `vscode-extension/` in VS Code and press **F5** to run the Extension Development Host.
 
 ---
 
 ## Running the Automated Test Suites
 
-### Backend Unit & Integration Tests (49 tests)
+### Backend Unit & Integration Tests (56 tests)
 ```bash
 cd backend
 npm test
 ```
-*Covers database adapters (MySQL, Postgres, SQLite, Mongo, Redis), cryptographic session token security, authorization, AST query validation, schema drift, and end-to-end scenarios.*
+*Covers database adapters (MySQL, Postgres, SQLite, Mongo, Redis), cryptographic session token security, authorization, AST query validation, hierarchical subquery scoping, schema drift, and end-to-end scenarios.*
 
-### Extension Tests & Compilation
+### Extension Tests & Compilation (3 tests)
 ```bash
 cd vscode-extension
 npm run compile
@@ -174,6 +181,7 @@ npm test
 ### Frontend Typecheck & Production Build
 ```bash
 cd frontend
+npm run lint
 npm run build
 ```
 
