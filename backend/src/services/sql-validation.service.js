@@ -144,12 +144,32 @@ function validateSelectQuery(sql, schema) {
         ? node.column
         : "";
 
-    // SELECT * and table.* are allowed.
-    if (!columnName || columnName === "*") {
-      return;
-    }
+    
+const qualifier = normalizeName(node.table);
 
-    const qualifier = normalizeName(node.table);
+// For table.* check that the table alias exists first.
+if (columnName === "*") {
+  if (qualifier && !tableAliases.has(qualifier)) {
+    findings.push(
+      makeFinding(
+        "UNKNOWN_TABLE_ALIAS",
+        `Table alias '${node.table}' is not defined in the FROM clause.`,
+        {
+          alias: node.table,
+          column: columnName,
+        }
+      )
+    );
+  }
+
+  return;
+}
+
+// Ignore an empty column reference.
+if (!columnName) {
+  return;
+}
+
 
     if (qualifier) {
       const resolved = tableAliases.get(qualifier);

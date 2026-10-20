@@ -1,21 +1,22 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import WorkspaceSidebar, {
+  type WorkspaceView,
+} from "@/components/layout/WorkspaceSidebar";
 
 import AppHeader from "@/components/layout/AppHeader";
 import AppFooter from "@/components/layout/AppFooter";
-
 import SectionCard from "@/components/ui/SectionCard";
 import Feedback from "@/components/ui/Feedback";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 import DatabaseConnection from "@/components/database/DatabaseConnection";
 import SchemaExplorer from "@/components/database/SchemaExplorer";
-
 import ProjectAnalyzer from "@/components/analysis/ProjectAnalyzer";
 import AnalysisDashboard from "@/components/analysis/AnalysisDashboard";
-
 import SQLExplainer from "@/components/sql/SQLExplainer";
 
 import {
@@ -24,6 +25,8 @@ import {
   inspectSchema,
   analyzeCodebase,
   explainSQL,
+  chatWithCopilot,
+  type ChatMessage,
 } from "@/lib/api";
 
 import type { SchemaTable } from "@/types";
@@ -49,7 +52,16 @@ function getResponseData(data: ApiResponse): unknown {
   return data;
 }
 
+const suggestions = [
+  "Explain primary and foreign keys",
+  "How do SQL joins work?",
+  "Help me debug a SQL query",
+  "How should I design my database schema?",
+];
+
 export default function Home() {
+  const [activeView, setActiveView] = useState<WorkspaceView>("chat");
+
   // Database connection fields
   const [host, setHost] = useState("localhost");
   const [port, setPort] = useState("3306");
@@ -75,13 +87,33 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<unknown>(null);
   const [analysisError, setAnalysisError] = useState("");
 
-  // SQL explanation state
+  // SQL analysis state
   const [sql, setSQL] = useState("");
   const [isExplaining, setIsExplaining] = useState(false);
-  const [sqlResult, setSQLResult] = useState<Record<string, unknown> | null>(
-    null
-  );
+  const [sqlResult, setSQLResult] =
+    useState<Record<string, unknown> | null>(null);
   const [sqlError, setSQLError] = useState("");
+
+  // Chat state
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
+
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Automatically scroll to the newest message.
+  useEffect(() => {
+    const container = chatScrollRef.current;
+
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [chatMessages, isChatLoading]);
 
   function clearResults() {
     setTables([]);
@@ -96,7 +128,12 @@ export default function Home() {
     setSQLError("");
   }
 
-  // Connect to the database
+  // Open the existing database credentials page.
+  function openDatabaseConnection() {
+    setActiveView("connections");
+  }
+
+  // Connect to the database.
   async function handleConnect() {
     setIsConnecting(true);
     setConnectionError("");
@@ -129,6 +166,7 @@ export default function Home() {
 
       setSessionId(result.sessionId);
       setIsConnected(true);
+
       setConnectionMessage(
         typeof result.message === "string"
           ? result.message
@@ -145,7 +183,7 @@ export default function Home() {
     }
   }
 
-  // Disconnect from the database
+  // Disconnect from the database.
   async function handleDisconnect() {
     if (!sessionId) return;
 
@@ -159,6 +197,7 @@ export default function Home() {
       setSessionId("");
       setIsConnected(false);
       setConnectionMessage("Database disconnected successfully.");
+
       clearResults();
     } catch (error) {
       setConnectionError(
@@ -171,7 +210,7 @@ export default function Home() {
     }
   }
 
-  // Inspect database schema
+  // Inspect the connected database schema.
   async function handleInspectSchema() {
     if (!sessionId || !isConnected) {
       setSchemaError("Connect to a database first.");
@@ -191,7 +230,6 @@ export default function Home() {
           : data;
 
       const schema = result.schema ?? result.tables;
-
       let tableList: unknown[] = [];
 
       if (Array.isArray(schema)) {
@@ -216,7 +254,7 @@ export default function Home() {
     }
   }
 
-  // Analyze an uploaded ZIP project
+  // Analyze an uploaded project ZIP.
   async function handleAnalyzeProject() {
     if (!sessionId || !isConnected) {
       setAnalysisError("Connect to a database before analyzing your project.");
@@ -253,7 +291,7 @@ export default function Home() {
     }
   }
 
-  // Explain and validate SQL
+  // Explain and validate SQL.
   async function handleExplainSQL() {
     if (!sessionId || !isConnected) {
       setSQLError("Connect to a database before analyzing SQL.");
@@ -272,7 +310,6 @@ export default function Home() {
     try {
       const response = await explainSQL(sessionId, sql);
       const data = getResponseData(response) as Record<string, unknown>;
-
       const result = data.result ?? data;
 
       if (!result || typeof result !== "object" || Array.isArray(result)) {
@@ -291,7 +328,7 @@ export default function Home() {
     }
   }
 
-  // Copy suggested SQL
+  // Copy suggested SQL.
   async function handleCopySQL(value: string) {
     try {
       await navigator.clipboard.writeText(value);
@@ -302,101 +339,519 @@ export default function Home() {
     }
   }
 
+  // Send a message to DB Copilot.
+  async function handleSendChat() {
+    const message = chatInput.trim();
+
+    if (!message || isChatLoading) return;
+
+    const previousMessages = chatMessages.slice(-10);
+
+    const updatedMessages: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", text: message },
+    ];
+
+    setChatMessages(updatedMessages);
+    setChatInput("");
+    setChatError("");
+    setIsChatLoading(true);
+
+    try {
+      const response = await chatWithCopilot(
+        message,
+        isConnected ? sessionId : undefined,
+        previousMessages
+      );
+
+      if (!response || typeof response.answer !== "string") {
+        throw new Error("The AI returned an invalid response.");
+      }
+
+      setChatMessages([
+        ...updatedMessages,
+        { role: "model", text: response.answer },
+      ]);
+    } catch (error) {
+      setChatError(
+        error instanceof Error
+          ? error.message
+          : "Failed to get an AI response."
+      );
+    } finally {
+      setIsChatLoading(false);
+
+      // Return the cursor to the composer after the response.
+      window.requestAnimationFrame(() => {
+        chatInputRef.current?.focus();
+      });
+    }
+  }
+
+  function handleNewChat() {
+    if (isChatLoading) return;
+
+    setChatMessages([]);
+    setChatInput("");
+    setChatError("");
+
+    window.requestAnimationFrame(() => {
+      chatInputRef.current?.focus();
+    });
+  }
+
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-8">
-      <div className="mx-auto max-w-6xl space-y-8">
-        <AppHeader />
+    <main
+      className={`bg-[#080b14] text-slate-100 ${
+        activeView === "chat" ? "h-screen overflow-hidden" : "min-h-screen"
+      }`}
+    >
+      <div
+        className={`mx-auto flex max-w-[1800px] ${
+          activeView === "chat" ? "h-screen" : "min-h-screen"
+        }`}
+      >
+        {/* Workspace sidebar */}
+        <aside className="hidden w-72 shrink-0 md:block">
+          <div className="sticky top-0 h-screen">
+            <WorkspaceSidebar
+              activeView={activeView}
+              onViewChange={setActiveView}
+              isConnected={isConnected}
+            />
+          </div>
+        </aside>
 
-        <SectionCard
-          title="Database Connection"
-          description="Connect DB Copilot to your database to inspect its schema and analyze SQL."
-          step={1}
+        {/* Main workspace */}
+        <div
+          className={`min-w-0 flex-1 px-4 md:px-8 ${
+            activeView === "chat"
+              ? "flex h-full flex-col overflow-hidden py-3"
+              : "py-6 md:py-8"
+          }`}
         >
-          <DatabaseConnection
-            host={host}
-            port={port}
-            username={username}
-            password={password}
-            database={database}
-            isConnecting={isConnecting}
-            isConnected={isConnected}
-            onHostChange={setHost}
-            onPortChange={setPort}
-            onUsernameChange={setUsername}
-            onPasswordChange={setPassword}
-            onDatabaseChange={setDatabase}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
-          />
+          <div
+            className={`mx-auto w-full max-w-5xl ${
+              activeView === "chat"
+                ? "flex min-h-0 flex-1 flex-col gap-3"
+                : "space-y-6"
+            }`}
+          >
+            <AppHeader />
 
-          <Feedback type="success" message={connectionMessage} />
-          <Feedback type="error" message={connectionError} />
-        </SectionCard>
+            {/* Database connection credentials page */}
+            {activeView === "connections" && (
+              <SectionCard
+                title="Database Connection"
+                description="Connect DB Copilot to inspect your schema and analyze SQL."
+                step={1}
+              >
+                <DatabaseConnection
+                  host={host}
+                  port={port}
+                  username={username}
+                  password={password}
+                  database={database}
+                  isConnecting={isConnecting}
+                  isConnected={isConnected}
+                  onHostChange={setHost}
+                  onPortChange={setPort}
+                  onUsernameChange={setUsername}
+                  onPasswordChange={setPassword}
+                  onDatabaseChange={setDatabase}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                />
 
-        <SectionCard
-          title="Schema Explorer"
-          description="Inspect tables, columns, keys, and relationships in your connected database."
-          step={2}
-        >
-          <SchemaExplorer
-            tables={tables}
-            isInspecting={isInspecting}
-            isConnected={isConnected}
-            error={schemaError}
-            onInspect={handleInspectSchema}
-          />
-        </SectionCard>
+                <Feedback type="success" message={connectionMessage} />
+                <Feedback type="error" message={connectionError} />
+              </SectionCard>
+            )}
 
-        <SectionCard
-          title="Project Code Analysis"
-          description="Upload a ZIP of your codebase to find database-related code and SQL validation issues."
-          step={3}
-        >
-          <ProjectAnalyzer
-            selectedFile={selectedFile}
-            isAnalyzing={isAnalyzing}
-            isConnected={isConnected}
-            onFileChange={(file) => {
-              setSelectedFile(file);
-              setAnalysisError("");
-            }}
-            onAnalyze={handleAnalyzeProject}
-          />
+            {/* Schema Explorer */}
+            {activeView === "schema" && (
+              <SectionCard
+                title="Schema Explorer"
+                description="Inspect tables, columns, keys, and relationships."
+                step={2}
+              >
+                <SchemaExplorer
+                  tables={tables}
+                  isInspecting={isInspecting}
+                  isConnected={isConnected}
+                  error={schemaError}
+                  onInspect={handleInspectSchema}
+                />
+              </SectionCard>
+            )}
 
-          <Feedback type="error" message={analysisError} />
+            {/* Project Code Analysis */}
+            {activeView === "code" && (
+              <SectionCard
+                title="Project Code Analysis"
+                description="Upload a ZIP to inspect database-related code and SQL issues."
+                step={3}
+              >
+                <ProjectAnalyzer
+                  selectedFile={selectedFile}
+                  isAnalyzing={isAnalyzing}
+                  isConnected={isConnected}
+                  onFileChange={(file) => {
+                    setSelectedFile(file);
+                    setAnalysisError("");
+                  }}
+                  onAnalyze={handleAnalyzeProject}
+                />
 
-          {isAnalyzing && <LoadingSpinner />}
+                <Feedback type="error" message={analysisError} />
 
-          {analysis !== null && (
-            <div className="mt-6">
-              <AnalysisDashboard analysis={analysis} />
-            </div>
-          )}
-        </SectionCard>
+                {isAnalyzing && <LoadingSpinner />}
 
-        <SectionCard
-          title="AI SQL Explainer"
-          description="Understand a query, review its validation findings, and inspect suggested SQL."
-          step={4}
-        >
-          <SQLExplainer
-            sql={sql}
-            isExplaining={isExplaining}
-            isConnected={isConnected}
-            result={sqlResult}
-            error={sqlError}
-            onSQLChange={(value) => {
-              setSQL(value);
-              setSQLError("");
-            }}
-            onExplain={handleExplainSQL}
-            onCopy={handleCopySQL}
-          />
+                {analysis !== null && (
+                  <div className="mt-6">
+                    <AnalysisDashboard analysis={analysis} />
+                  </div>
+                )}
+              </SectionCard>
+            )}
 
-          {isExplaining && <LoadingSpinner />}
-        </SectionCard>
+            {/* SQL Assistant */}
+            {activeView === "sql" && (
+              <SectionCard
+                title="SQL Assistant"
+                description="Understand queries, review validation findings, and inspect suggested SQL."
+                step={4}
+              >
+                <SQLExplainer
+                  sql={sql}
+                  isExplaining={isExplaining}
+                  isConnected={isConnected}
+                  result={sqlResult}
+                  error={sqlError}
+                  onSQLChange={(value) => {
+                    setSQL(value);
+                    setSQLError("");
+                  }}
+                  onExplain={handleExplainSQL}
+                  onCopy={handleCopySQL}
+                />
 
-        <AppFooter />
+                {isExplaining && <LoadingSpinner />}
+              </SectionCard>
+            )}
+
+            {/* AI Chat */}
+            {activeView === "chat" && (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <SectionCard
+                  title="AI Database Copilot"
+                  description="Ask questions, debug SQL, and explore your database."
+                  className="chat-card"
+                >
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b1020]">
+                    {/* Compact chat header */}
+                    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2 sm:px-4">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-lg text-indigo-300">
+                          ✳
+                        </div>
+
+                        <div className="min-w-0">
+                          <h2 className="text-sm font-semibold text-white">
+                            Ask DB Copilot
+                          </h2>
+                          <p className="truncate text-[11px] text-slate-400">
+                            {isConnected
+                              ? "Database context enabled"
+                              : "General chat · Connect for schema context"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={`hidden items-center gap-1.5 text-xs sm:flex ${
+                            isConnected
+                              ? "text-emerald-300"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              isConnected ? "bg-emerald-400" : "bg-slate-500"
+                            }`}
+                          />
+                          {isConnected ? "Connected" : "Not connected"}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={handleNewChat}
+                          disabled={isChatLoading}
+                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/5 disabled:opacity-50"
+                        >
+                          New chat
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scrollable conversation */}
+                    <div
+                      ref={chatScrollRef}
+                      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 sm:p-4"
+                      aria-live="polite"
+                    >
+                      {chatMessages.length === 0 && (
+                        <div className="m-auto w-full max-w-xl shrink-0 py-2 text-center">
+                          <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 text-xl text-indigo-300">
+                            ✳
+                          </div>
+
+                          <h3 className="text-base font-semibold text-white">
+                            What can I help you build?
+                          </h3>
+
+                          <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-400">
+                            Ask in plain English about SQL, database design,
+                            or your schema.
+                          </p>
+
+                          {/* Suggested prompts only */}
+                          <div className="mx-auto mt-3 grid w-full max-w-lg grid-cols-2 gap-2">
+                            {suggestions.map((suggestion) => (
+                              <button
+                                key={suggestion}
+                                type="button"
+                                onClick={() => {
+                                  setChatInput(suggestion);
+
+                                  window.requestAnimationFrame(() => {
+                                    chatInputRef.current?.focus();
+                                  });
+                                }}
+                                className="min-h-10 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left text-xs leading-4 text-slate-300 transition hover:border-indigo-400/40 hover:bg-indigo-400/5"
+                              >
+                                {suggestion}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {chatMessages.map((message, index) => (
+                        <div
+                          key={`${index}-${message.role}`}
+                          className={`flex shrink-0 gap-2 ${
+                            message.role === "user"
+                              ? "justify-end"
+                              : "justify-start"
+                          }`}
+                        >
+                          {message.role === "model" && (
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-sm text-indigo-300">
+                              ✳
+                            </div>
+                          )}
+
+                          <div
+                            className={`max-w-[88%] rounded-xl px-3 py-2.5 sm:max-w-[80%] ${
+                              message.role === "user"
+                                ? "bg-indigo-600 text-white"
+                                : "border border-white/10 bg-white/[0.04] text-slate-200"
+                            }`}
+                          >
+                            <p className="mb-1 text-[9px] font-semibold uppercase tracking-wider opacity-60">
+                              {message.role === "user" ? "You" : "DB Copilot"}
+                            </p>
+
+                            <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                              {message.text}
+                            </p>
+
+                            {message.role === "model" && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void navigator.clipboard
+                                    .writeText(message.text)
+                                    .catch(() =>
+                                      setChatError(
+                                        "Could not copy the response automatically."
+                                      )
+                                    );
+                                }}
+                                className="mt-2 text-xs text-slate-400 hover:text-white"
+                              >
+                                Copy response
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {isChatLoading && (
+                        <div className="flex shrink-0 items-start gap-2">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-sm text-indigo-300">
+                            ✳
+                          </div>
+
+                          <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                            <p className="text-xs text-slate-400">
+                              DB Copilot is thinking...
+                            </p>
+                            <LoadingSpinner />
+                          </div>
+                        </div>
+                      )}
+
+                      {chatError && (
+                        <div
+                          role="alert"
+                          className="shrink-0 rounded-lg border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300"
+                        >
+                          {chatError}
+                          <button
+                            type="button"
+                            onClick={() => setChatError("")}
+                            className="ml-2 underline"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Fixed composer */}
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleSendChat();
+                      }}
+                      className="shrink-0 border-t border-white/10 bg-black/10 p-2.5 sm:p-3"
+                    >
+                      <label htmlFor="copilot-message" className="sr-only">
+                        Your message
+                      </label>
+
+                      <div className="flex items-end gap-2 rounded-xl border border-white/10 bg-[#080b14] p-1.5 focus-within:border-indigo-400/50">
+                        <textarea
+                          ref={chatInputRef}
+                          id="copilot-message"
+                          value={chatInput}
+                          onChange={(event) => setChatInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" &&
+                              !event.shiftKey &&
+                              !event.nativeEvent.isComposing
+                            ) {
+                              event.preventDefault();
+                              void handleSendChat();
+                            }
+                          }}
+                          placeholder="Ask about SQL, schemas, or database design..."
+                          rows={1}
+                          maxLength={5000}
+                          className="max-h-24 min-h-10 flex-1 resize-y bg-transparent px-2 py-2 text-sm leading-5 text-white outline-none placeholder:text-slate-500"
+                        />
+
+                        <button
+                          type="submit"
+                          disabled={!chatInput.trim() || isChatLoading}
+                          className="mb-0.5 rounded-lg bg-indigo-500 px-3.5 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {isChatLoading ? "..." : "Send"}
+                        </button>
+                      </div>
+
+                      <div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-[10px] text-slate-500">
+                        <span>
+                          Enter to send · Shift + Enter for a new line
+                        </span>
+                        <span>{chatInput.length}/5000</span>
+                      </div>
+                    </form>
+                  </div>
+                </SectionCard>
+
+                {/* Separate connection section BELOW the chat box */}
+                
+                  <section className="mt-3 shrink-0 rounded-xl border border-indigo-400/20 bg-[#0d1426] p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-indigo-400/20 bg-indigo-500/10 text-indigo-300">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="21"
+                            height="21"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <ellipse cx="12" cy="5" rx="8" ry="3" />
+                            <path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+                            <path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" />
+                          </svg>
+                        </div>
+
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-semibold text-white">
+                            {isConnected
+                              ? "Your database is connected"
+                              : "Connect to a Live Database"}
+                          </h3>
+
+                          <p className="mt-1 max-w-xl text-xs leading-5 text-slate-400">
+                            {isConnected
+                              ? "Manage your database connection or inspect your live schema."
+                              : "Connect your database to let DB Copilot use your actual tables and columns when helping with SQL and schema questions."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={openDatabaseConnection}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300/60"
+                      >
+                        {isConnected ? "Manage Connection" : "Connect Database"}
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    </div>
+                  </section>
+                
+
+                <p className="shrink-0 pt-1.5 text-[10px] leading-4 text-slate-500">
+                  AI responses may be inaccurate. Review SQL before using it.
+                  Chat does not execute SQL against your database.
+                </p>
+              </div>
+            )}
+
+            {/* Schema Drift placeholder */}
+            {activeView === "drift" && (
+              <SectionCard
+                title="Schema Drift"
+                description="Compare your application's expected database structure with the live database."
+              >
+                <div className="rounded-xl border border-dashed border-white/15 p-6">
+                  <p className="font-medium text-white">
+                    Schema drift detection is the next feature to implement.
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    This view is a placeholder and does not yet compare schemas.
+                  </p>
+                </div>
+              </SectionCard>
+            )}
+
+            {activeView !== "chat" && <AppFooter />}
+          </div>
+        </div>
       </div>
     </main>
   );

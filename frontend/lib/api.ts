@@ -74,3 +74,30 @@ export function explainSQL(sessionId: string, sql: string) {
     body: JSON.stringify({ sessionId, sql }),
   });
 }
+
+
+export type ChatMessage = {
+  role: "user" | "model";
+  text: string;
+};
+
+export type ChatResponse = {
+  success: boolean;
+  answer: string;
+};
+
+export function chatWithCopilot(
+  message: string,
+  sessionId?: string,
+  history: ChatMessage[] = []
+) {
+  return request<ChatResponse>("/api/ai/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      ...(sessionId ? { sessionId } : {}),
+      history,
+    }),
+  });
+}

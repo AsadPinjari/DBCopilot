@@ -188,3 +188,18 @@ test("does not mark unsupported SQL as valid", () => {
 
   assert.equal(result.status, "unsupported");
 });
+
+
+test("detects an undefined alias used with wildcard", () => {
+  const result = validateSelectQuery(
+    "SELECT x.* FROM students s;",
+    schema
+  );
+
+  assert.equal(result.status, "invalid");
+  assert.ok(
+    result.findings.some(
+      (finding) => finding.code === "UNKNOWN_TABLE_ALIAS"
+    )
+  );
+});
