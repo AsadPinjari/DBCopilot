@@ -13,9 +13,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DB Copilot — AI Database Development Assistant",
+  title: "DB Copilot — Intelligent Database Development Assistant",
   description:
-    "Connect your database, inspect schemas, analyze project code for SQL compatibility issues, and get AI-powered assistance.",
+    "Connect your database, inspect live schemas, statically analyze project code for SQL compatibility issues, and get schema-grounded AI assistance.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -12,6 +12,7 @@ import AppFooter from "@/components/layout/AppFooter";
 import SectionCard from "@/components/ui/SectionCard";
 import Feedback from "@/components/ui/Feedback";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import DbCopilotLogo, { DbCopilotMark } from "@/components/ui/DbCopilotLogo";
 
 import DatabaseConnection from "@/components/database/DatabaseConnection";
 import SchemaExplorer from "@/components/database/SchemaExplorer";
@@ -517,6 +518,55 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
               : "py-6 md:py-8"
           }`}
         >
+          {/* Mobile Navigation Header */}
+          <header className="sticky top-0 z-40 -mx-4 -mt-3 mb-4 flex flex-col border-b border-white/[0.08] bg-[#07090e]/95 px-4 py-3 backdrop-blur-xl md:hidden">
+            <div className="flex items-center justify-between pb-2.5">
+              <DbCopilotLogo size="xs" withText={true} />
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                  isConnected
+                    ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    : "border border-white/10 bg-slate-800 text-slate-400"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    isConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-500"
+                  }`}
+                />
+                {isConnected ? "Active" : "Disconnected"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 text-xs">
+              {[
+                { id: "chat", label: "AI Chat" },
+                { id: "schema", label: "Schema" },
+                { id: "sql", label: "SQL" },
+                { id: "code", label: "Code" },
+                { id: "drift", label: "Drift" },
+                { id: "ide", label: "VS Code" },
+                { id: "connections", label: "Connect" },
+              ].map((tab) => {
+                const active = activeView === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleViewChange(tab.id as WorkspaceView)}
+                    className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                      active
+                        ? "border border-indigo-400/40 bg-indigo-500/20 text-white shadow-sm"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </header>
+
           <div
             className={`mx-auto w-full max-w-5xl ${
               activeView === "chat"
@@ -744,19 +794,19 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
                           }`}
                         >
                           {message.role === "model" && (
-                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-sm text-indigo-300">
-                              ✳
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-indigo-400/30 bg-slate-900 shadow-md">
+                              <DbCopilotMark size={18} />
                             </div>
                           )}
 
                           <div
-                            className={`max-w-[88%] rounded-xl px-3 py-2.5 sm:max-w-[80%] ${
+                            className={`max-w-[88%] rounded-xl px-3.5 py-2.5 sm:max-w-[80%] ${
                               message.role === "user"
-                                ? "bg-indigo-600 text-white"
-                                : "border border-white/10 bg-white/[0.04] text-slate-200"
+                                ? "border border-indigo-400/30 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-950/40"
+                                : "border border-white/[0.08] bg-slate-900/90 text-slate-100 shadow-lg shadow-black/30 backdrop-blur-md"
                             }`}
                           >
-                            <p className="mb-1 text-[9px] font-semibold uppercase tracking-wider opacity-60">
+                            <p className="mb-1 text-[9px] font-bold uppercase tracking-wider opacity-70">
                               {message.role === "user" ? "You" : "DB Copilot"}
                             </p>
 
@@ -776,7 +826,7 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
                                       )
                                     );
                                 }}
-                                className="mt-2 text-xs text-slate-400 hover:text-white"
+                                className="mt-2 text-xs font-medium text-indigo-300 hover:text-white"
                               >
                                 Copy response
                               </button>
@@ -787,13 +837,13 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
 
                       {isChatLoading && (
                         <div className="flex shrink-0 items-start gap-2">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-sm text-indigo-300">
-                            ✳
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-indigo-400/30 bg-slate-900 shadow-md">
+                            <DbCopilotMark size={18} />
                           </div>
 
-                          <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                            <p className="text-xs text-slate-400">
-                              DB Copilot is thinking...
+                          <div className="rounded-xl border border-white/[0.08] bg-slate-900/90 px-3.5 py-2.5 shadow-lg">
+                            <p className="text-xs font-medium text-slate-300">
+                              DB Copilot is analyzing...
                             </p>
                             <LoadingSpinner />
                           </div>

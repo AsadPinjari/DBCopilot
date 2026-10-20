@@ -1,0 +1,74 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="dbFavGlow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#818cf8" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#4f46e5" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="dbFavTop" x1="8" y1="8" x2="40" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="60%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="dbFavBody" x1="8" y1="12" x2="40" y2="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="35%" stop-color="#312e81"/>
+      <stop offset="80%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="dbFavSpark" x1="28" y1="4" x2="44" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="dbFavRim" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#67e8f9" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#818cf8" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#4338ca" stop-opacity="0.4"/>
+    </linearGradient>
+    <filter id="sparkGlow" x="22" y="2" width="26" height="26" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="1" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="24" cy="24" r="22" fill="url(#dbFavGlow)"/>
+
+  <!-- Tier 3: Database Base -->
+  <path d="M8 29C8 26.24 15.16 24 24 24C32.84 24 40 26.24 40 29V34C40 36.76 32.84 39 24 39C15.16 39 8 36.76 8 34V29Z"
+        fill="url(#dbFavBody)" stroke="url(#dbFavRim)" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M8 34C8 36.76 15.16 39 24 39C32.84 39 40 36.76 40 34"
+        stroke="#38bdf8" stroke-width="1.2" stroke-opacity="0.7" stroke-linecap="round"/>
+
+  <!-- Tier 2: Database Middle -->
+  <path d="M8 20C8 17.24 15.16 15 24 15C32.84 15 40 17.24 40 20V25C40 27.76 32.84 30 24 30C15.16 30 8 27.76 8 25V20Z"
+        fill="url(#dbFavBody)" stroke="url(#dbFavRim)" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M8 25C8 27.76 15.16 30 24 30C32.84 30 40 28.76 40 25"
+        stroke="#818cf8" stroke-width="1.2" stroke-opacity="0.8" stroke-linecap="round"/>
+
+  <!-- Tier 1: Database Top Body -->
+  <path d="M8 11C8 8.24 15.16 6 24 6C32.84 6 40 8.24 40 11V16C40 18.76 32.84 21 24 21C15.16 21 8 18.76 8 16V11Z"
+        fill="url(#dbFavBody)" stroke="url(#dbFavRim)" stroke-width="1.2" stroke-linejoin="round"/>
+
+  <!-- Top Ellipse -->
+  <ellipse cx="24" cy="11" rx="16" ry="5" fill="url(#dbFavTop)" stroke="#67e8f9" stroke-width="1"/>
+  <ellipse cx="24" cy="11" rx="11" ry="3.2" fill="#0f172a" fill-opacity="0.6" stroke="#38bdf8" stroke-width="0.8" stroke-dasharray="2 2"/>
+
+  <!-- Connected Nodes -->
+  <circle cx="16" cy="20" r="1.5" fill="#38bdf8"/>
+  <circle cx="24" cy="22" r="1.5" fill="#818cf8"/>
+  <circle cx="32" cy="20" r="1.5" fill="#38bdf8"/>
+  <path d="M16 20L24 22L32 20" stroke="#38bdf8" stroke-width="0.8" stroke-opacity="0.6"/>
+
+  <circle cx="16" cy="29" r="1.5" fill="#818cf8"/>
+  <circle cx="24" cy="31" r="1.5" fill="#38bdf8"/>
+  <circle cx="32" cy="29" r="1.5" fill="#818cf8"/>
+  <path d="M16 29L24 31L32 29" stroke="#818cf8" stroke-width="0.8" stroke-opacity="0.6"/>
+
+  <!-- AI Copilot Intelligence Star -->
+  <g filter="url(#sparkGlow)">
+    <path d="M36 6C36 10 39.5 12 43 12C39.5 12 36 14 36 18C36 14 32.5 12 29 12C32.5 12 36 10 36 6Z" fill="url(#dbFavSpark)"/>
+    <circle cx="36" cy="12" r="1.2" fill="#ffffff"/>
+  </g>
+  <path d="M12 4C12 6 13.5 7 15 7C13.5 7 12 8 12 10C12 8 10.5 7 9 7C10.5 7 12 6 12 4Z" fill="#38bdf8" fill-opacity="0.9"/>
+</svg>
