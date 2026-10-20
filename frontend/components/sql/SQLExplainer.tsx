@@ -1,10 +1,19 @@
-
 "use client";
+
+type ValidationFinding = {
+  code?: string;
+  message?: string;
+  table?: string;
+  column?: string;
+  alias?: string;
+  tables?: string[];
+  [key: string]: unknown;
+};
 
 type ValidationResult = {
   status?: string;
   supported?: boolean;
-  findings?: unknown[];
+  findings?: (string | ValidationFinding | unknown)[];
   [key: string]: unknown;
 };
 
@@ -21,18 +30,69 @@ type SQLExplainResult = {
 type SQLExplainerProps = {
   sql: string;
   isExplaining: boolean;
+  isValidatingOnly?: boolean;
   isConnected: boolean;
   result: SQLExplainResult | null;
   error: string;
   onSQLChange: (value: string) => void;
   onExplain: () => void;
+  onValidateOnly?: () => void;
   onCopy: (value: string) => void;
 };
 
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === null || value === undefined) return "";
-  return JSON.stringify(value, null, 2);
+function formatFinding(finding: unknown): {
+  title: string;
+  detail?: string;
+  severity: "error" | "warning" | "info";
+} {
+  if (typeof finding === "string") {
+    return { title: finding, severity: "warning" };
+  }
+
+  if (!finding || typeof finding !== "object") {
+    return { title: String(finding), severity: "info" };
+  }
+
+  const f = finding as ValidationFinding;
+
+  if (f.message) {
+    return { title: f.message, detail: f.code, severity: "error" };
+  }
+
+  if (f.code === "TABLE_NOT_FOUND") {
+    return {
+      title: `Table "${f.table}" does not exist in schema`,
+      detail: f.code,
+      severity: "error",
+    };
+  }
+
+  if (f.code === "COLUMN_NOT_FOUND") {
+    return {
+      title: `Column "${f.column}" does not exist in table "${f.table}"`,
+      detail: f.code,
+      severity: "error",
+    };
+  }
+
+  if (f.code === "ALIAS_NOT_FOUND") {
+    return {
+      title: `Unknown table alias "${f.alias}"`,
+      detail: f.code,
+      severity: "error",
+    };
+  }
+
+  if (f.code === "AMBIGUOUS_COLUMN") {
+    const tableList = (f.tables || []).join(", ");
+    return {
+      title: `Ambiguous column "${f.column}" — present in multiple tables: ${tableList}`,
+      detail: f.code,
+      severity: "error",
+    };
+  }
+
+  return { title: JSON.stringify(finding), severity: "info" };
 }
 
 function StatusBadge({ value }: { value: string }) {
@@ -51,8 +111,17 @@ function StatusBadge({ value }: { value: string }) {
 
   return (
     <span
-      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${style}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${style}`}
     >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          normalized.includes("invalid") || normalized.includes("error")
+            ? "bg-red-400"
+            : normalized.includes("valid") || normalized.includes("success")
+              ? "bg-emerald-400"
+              : "bg-amber-400"
+        }`}
+      />
       {value}
     </span>
   );
@@ -67,95 +136,161 @@ function ValidationCard({
 }) {
   if (!validation) return null;
 
+  const findings = validation.findings ?? [];
+
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-950 p-4">
-      <h4 className="mb-3 font-semibold text-white">{title}</h4>
-
-      <div className="flex flex-wrap gap-2">
-        {validation.status && <StatusBadge value={validation.status} />}
-
-        {typeof validation.supported === "boolean" && (
-          <StatusBadge
-            value={validation.supported ? "Supported" : "Unsupported"}
-          />
-        )}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="font-semibold text-white">{title}</h4>
+        <div className="flex flex-wrap gap-2">
+          {validation.status && <StatusBadge value={validation.status} />}
+          {typeof validation.supported === "boolean" && (
+            <StatusBadge
+              value={validation.supported ? "Supported SELECT" : "Unsupported SQL"}
+            />
+          )}
+        </div>
       </div>
 
-      {validation.findings && validation.findings.length > 0 && (
+      {findings.length > 0 ? (
         <div className="mt-3 space-y-2">
-          <p className="text-sm font-medium text-slate-300">Findings</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Validation Findings ({findings.length})
+          </p>
 
-          {validation.findings.map((finding, index) => (
-            <pre
-              key={index}
-              className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900 p-3 text-xs text-slate-400"
-            >
-              {formatValue(finding)}
-            </pre>
-          ))}
-        </div>
-      )}
-
-      {Object.entries(validation)
-        .filter(
-          ([key]) =>
-            !["status", "supported", "findings"].includes(key)
-        )
-        .map(([key, value]) => (
-          <div key={key} className="mt-3">
-            <p className="text-xs font-medium text-slate-400">{key}</p>
-            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-xs text-slate-300">
-              {formatValue(value)}
-            </pre>
+          <div className="space-y-1.5">
+            {findings.map((rawFinding, index) => {
+              const { title: fTitle, detail, severity } = formatFinding(rawFinding);
+              return (
+                <div
+                  key={index}
+                  className={`flex items-start gap-2.5 rounded-lg border p-3 text-xs ${
+                    severity === "error"
+                      ? "border-red-500/30 bg-red-500/10 text-red-200"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-200"
+                  }`}
+                >
+                  <span className="font-bold">
+                    {severity === "error" ? "✕" : "⚠"}
+                  </span>
+                  <div className="flex-1">
+                    <p className="font-medium">{fTitle}</p>
+                    {detail && (
+                      <span className="mt-1 inline-block rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                        {detail}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
+        </div>
+      ) : (
+        validation.status === "valid" && (
+          <p className="rounded-lg bg-emerald-500/10 p-2.5 text-xs text-emerald-300">
+            ✓ Query passed live schema validation. All referenced tables and columns exist.
+          </p>
+        )
+      )}
     </div>
   );
 }
 
+const SAMPLE_QUERIES = [
+  {
+    label: "Simple SELECT",
+    sql: "SELECT * FROM orders WHERE id = 1;",
+  },
+  {
+    label: "Ambiguous Column",
+    sql: "SELECT id FROM users, orders;",
+  },
+  {
+    label: "Nonexistent Table",
+    sql: "SELECT * FROM non_existent_table WHERE active = 1;",
+  },
+  {
+    label: "JOIN with Alias",
+    sql: "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id;",
+  },
+];
+
 export default function SQLExplainer({
   sql,
   isExplaining,
+  isValidatingOnly = false,
   isConnected,
   result,
   error,
   onSQLChange,
   onExplain,
+  onValidateOnly,
   onCopy,
 }: SQLExplainerProps) {
+  const isBusy = isExplaining || isValidatingOnly;
+
   return (
     <div className="space-y-5">
       <div>
-        <label
-          htmlFor="sql-query"
-          className="mb-2 block text-sm font-medium text-slate-300"
-        >
-          SQL Query
-        </label>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <label
+            htmlFor="sql-query"
+            className="block text-sm font-medium text-slate-300"
+          >
+            SQL Query
+          </label>
+
+          {/* Quick sample chips */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+            <span>Samples:</span>
+            {SAMPLE_QUERIES.map((sample) => (
+              <button
+                key={sample.label}
+                type="button"
+                onClick={() => onSQLChange(sample.sql)}
+                className="rounded border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-500 hover:text-white"
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <textarea
           id="sql-query"
           value={sql}
           onChange={(event) => onSQLChange(event.target.value)}
-          placeholder="SELECT * FROM students;"
-          rows={6}
+          placeholder="SELECT * FROM orders WHERE status = 'completed';"
+          rows={5}
           spellCheck={false}
           className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-500"
         />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        {onValidateOnly && (
+          <button
+            type="button"
+            onClick={onValidateOnly}
+            disabled={!isConnected || isBusy || !sql.trim()}
+            className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isValidatingOnly ? "Validating Schema..." : "Validate Schema Only"}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onExplain}
-          disabled={!isConnected || isExplaining || !sql.trim()}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!isConnected || isBusy || !sql.trim()}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isExplaining ? "Analyzing SQL..." : "Explain & Validate SQL"}
+          {isExplaining ? "Explaining with AI..." : "Explain & Fix with AI"}
         </button>
 
         {!isConnected && (
-          <p className="text-sm text-amber-300">
+          <p className="text-xs text-amber-300">
             Connect to a database before analyzing SQL.
           </p>
         )}
@@ -172,23 +307,34 @@ export default function SQLExplainer({
 
       {result && (
         <div className="space-y-4 border-t border-slate-800 pt-5">
-          <h3 className="text-lg font-semibold text-white">
-            SQL Analysis Results
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-white">
+              SQL Analysis Results
+            </h3>
+            {result.explanation ? (
+              <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-xs text-indigo-300">
+                AI Explained
+              </span>
+            ) : (
+              <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-300">
+                Schema Validator
+              </span>
+            )}
+          </div>
 
           {result.originalSql && (
             <div>
-              <p className="mb-2 text-sm font-medium text-slate-300">
-                Original SQL
+              <p className="mb-1 text-xs font-medium text-slate-400">
+                Query Tested
               </p>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-slate-700 bg-slate-950 p-4 font-mono text-sm text-slate-300">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-300">
                 {result.originalSql}
               </pre>
             </div>
           )}
 
           <ValidationCard
-            title="Original Query Validation"
+            title="Schema Validation"
             validation={result.validation}
           />
 
@@ -213,18 +359,18 @@ export default function SQLExplainer({
           {result.suggestedSql && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <h4 className="font-semibold text-white">Suggested SQL</h4>
+                <h4 className="font-semibold text-white">Suggested Correction</h4>
 
                 <button
                   type="button"
                   onClick={() => onCopy(result.suggestedSql!)}
-                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-800"
+                  className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-200 transition hover:bg-slate-800"
                 >
-                  Copy SQL
+                  Copy Suggested SQL
                 </button>
               </div>
 
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-4 font-mono text-sm text-emerald-300">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 font-mono text-sm text-emerald-300">
                 {result.suggestedSql}
               </pre>
             </div>
@@ -234,17 +380,6 @@ export default function SQLExplainer({
             title="Suggested Query Validation"
             validation={result.suggestedValidation}
           />
-
-          {!result.originalSql &&
-            !result.validation &&
-            !result.explanation &&
-            !result.reasoning &&
-            !result.suggestedSql &&
-            !result.suggestedValidation && (
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
-                {JSON.stringify(result, null, 2)}
-              </pre>
-            )}
         </div>
       )}
     </div>

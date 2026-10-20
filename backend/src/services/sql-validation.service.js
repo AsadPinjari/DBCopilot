@@ -59,10 +59,25 @@ function validateSelectQuery(sql, schema) {
     return unsupportedResult("The SQL query is empty.");
   }
 
-  let ast;
+  // Strip accidental outer programming quotes if copied directly from JS/TS/Python string literals
+  let cleanSql = sql.trim();
+  cleanSql = cleanSql.replace(/[,;]\s*$/, "").trim();
+  if (
+    (cleanSql.startsWith('"') && cleanSql.endsWith('"')) ||
+    (cleanSql.startsWith("'") && cleanSql.endsWith("'")) ||
+    (cleanSql.startsWith("`") && cleanSql.endsWith("`"))
+  ) {
+    cleanSql = cleanSql.slice(1, -1).trim();
+  }
 
+  // Normalize PostgreSQL ($1) and named (:param) parameter markers for parser compatibility
+  const normalizedSql = cleanSql
+    .replace(/\$\d+/g, "?")
+    .replace(/(?<=\s|[,(])(?::[a-zA-Z0-9_]+)(?=\s|[,);]|$)/g, "?");
+
+  let ast;
   try {
-    ast = parser.astify(sql, { database: "MySQL" });
+    ast = parser.astify(normalizedSql, { database: "MySQL" });
   } catch (error) {
     return unsupportedResult(
       `Could not parse this SQL query: ${error.message}`

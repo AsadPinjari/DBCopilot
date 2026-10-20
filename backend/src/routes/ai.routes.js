@@ -57,11 +57,21 @@ router.post("/explain", async (req, res) => {
     // Use the real schema from the active database session.
     const schema = await getDatabaseSchema(config);
 
+    // Strip accidental outer quotes if copied directly from JS/Python code
+    let cleanSql = sql.trim().replace(/[,;]\s*$/, "").trim();
+    if (
+      (cleanSql.startsWith('"') && cleanSql.endsWith('"')) ||
+      (cleanSql.startsWith("'") && cleanSql.endsWith("'")) ||
+      (cleanSql.startsWith("`") && cleanSql.endsWith("`"))
+    ) {
+      cleanSql = cleanSql.slice(1, -1).trim();
+    }
+
     // Never trust a validation result supplied by the frontend.
-    const validation = validateSelectQuery(sql, schema);
+    const validation = validateSelectQuery(cleanSql, schema);
 
     const aiResult = await explainSqlFinding({
-      sql,
+      sql: cleanSql,
       validation,
       schema,
     });
@@ -88,9 +98,7 @@ router.post("/explain", async (req, res) => {
     });
   } catch (error) {
     // Log the technical details locally, not the API key or credentials.
-    console.error("AI explanation error:", error);
-console.error("Error status:", error.status);
-console.error("Error code:", error.code);
+    console.error("AI explanation error:", error.message || String(error));
 
     if (
       error.message.includes("GEMINI_API_KEY is not configured")
@@ -103,7 +111,7 @@ console.error("Error code:", error.code);
 
     return res.status(502).json({
       success: false,
-      message: "The AI explanation could not be generated. Please try again.",
+      message: `The AI explanation could not be generated: ${error.message || "Please try again."}`,
     });
   }
 });
@@ -188,7 +196,7 @@ router.post("/chat", async (req, res) => {
 
     return res.status(502).json({
       success: false,
-      message: "The AI response could not be generated. Please try again.",
+      message: `The AI response could not be generated: ${error.message || "Please try again."}`,
     });
   }
 });

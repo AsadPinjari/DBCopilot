@@ -17,15 +17,19 @@ import DatabaseConnection from "@/components/database/DatabaseConnection";
 import SchemaExplorer from "@/components/database/SchemaExplorer";
 import ProjectAnalyzer from "@/components/analysis/ProjectAnalyzer";
 import AnalysisDashboard from "@/components/analysis/AnalysisDashboard";
+import SchemaDrift from "@/components/analysis/SchemaDrift";
 import SQLExplainer from "@/components/sql/SQLExplainer";
+import IDEIntegration from "@/components/ide/IDEIntegration";
 
 import {
   connectDatabase,
   disconnectDatabase,
   inspectSchema,
   analyzeCodebase,
+  validateSQL,
   explainSQL,
   chatWithCopilot,
+  getCapabilities,
   type ChatMessage,
 } from "@/lib/api";
 
@@ -59,15 +63,49 @@ const suggestions = [
   "How should I design my database schema?",
 ];
 
-export default function Home() {
-  const [activeView, setActiveView] = useState<WorkspaceView>("chat");
+export default function Home({ initialView }: { initialView?: WorkspaceView } = {}) {
+  const [activeView, setActiveView] = useState<WorkspaceView>(initialView || "chat");
+
+  // Sync with URL hash or query params on direct navigation and browser back/forward
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "");
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab") || params.get("view");
+      const candidate = (tab || hash) as WorkspaceView;
+      const validViews: WorkspaceView[] = [
+        "chat",
+        "schema",
+        "sql",
+        "code",
+        "drift",
+        "ide",
+        "connections",
+      ];
+      if (candidate && validViews.includes(candidate)) {
+        setActiveView(candidate);
+      }
+    }
+  }, []);
+
+  const handleViewChange = (view: WorkspaceView) => {
+    setActiveView(view);
+    if (typeof window !== "undefined") {
+      const path = view === "chat" ? "/" : view === "ide" ? "/ide" : `#${view}`;
+      window.history.replaceState(null, "", path);
+    }
+  };
 
   // Database connection fields
+  const [engine, setEngine] = useState("mysql");
   const [host, setHost] = useState("localhost");
   const [port, setPort] = useState("3306");
   const [username, setUsername] = useState("root");
   const [password, setPassword] = useState("");
   const [database, setDatabase] = useState("");
+  const [filepath, setFilepath] = useState("");
+  const [uri, setUri] = useState("");
+  const [capabilities, setCapabilities] = useState<Record<string, Record<string, string>>>({});
 
   // Connection state
   const [sessionId, setSessionId] = useState("");
@@ -90,6 +128,7 @@ export default function Home() {
   // SQL analysis state
   const [sql, setSQL] = useState("");
   const [isExplaining, setIsExplaining] = useState(false);
+  const [isValidatingOnly, setIsValidatingOnly] = useState(false);
   const [sqlResult, setSQLResult] =
     useState<Record<string, unknown> | null>(null);
   const [sqlError, setSQLError] = useState("");
@@ -115,6 +154,17 @@ export default function Home() {
     }
   }, [chatMessages, isChatLoading]);
 
+  // Load capabilities matrix on mount
+  useEffect(() => {
+    getCapabilities()
+      .then((res) => {
+        if (res && res.engines) {
+          setCapabilities(res.engines);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   function clearResults() {
     setTables([]);
     setSchemaError("");
@@ -130,7 +180,7 @@ export default function Home() {
 
   // Open the existing database credentials page.
   function openDatabaseConnection() {
-    setActiveView("connections");
+    handleViewChange("connections");
   }
 
   // Connect to the database.
@@ -141,11 +191,14 @@ export default function Home() {
 
     try {
       const response = await connectDatabase({
+        engine,
         host,
-        port: Number(port),
+        port: port ? Number(port) : undefined,
         username,
         password,
         database,
+        filepath: engine === "sqlite" ? filepath : undefined,
+        uri: engine === "mongodb" && uri ? uri : undefined,
       });
 
       const data = getResponseData(response);
@@ -222,21 +275,18 @@ export default function Home() {
 
     try {
       const response = await inspectSchema(sessionId);
-      const data = getResponseData(response) as Record<string, unknown>;
 
-      const result =
-        data.result && typeof data.result === "object"
-          ? (data.result as Record<string, unknown>)
-          : data;
+      // Backend returns: { success: true, schema: { database, engine, tables: [...] } }
+      const schema = response.schema as
+        | { tables?: unknown[] }
+        | undefined;
 
-      const schema = result.schema ?? result.tables;
       let tableList: unknown[] = [];
 
       if (Array.isArray(schema)) {
         tableList = schema;
       } else if (schema && typeof schema === "object") {
         const schemaObject = schema as Record<string, unknown>;
-
         if (Array.isArray(schemaObject.tables)) {
           tableList = schemaObject.tables;
         }
@@ -328,6 +378,42 @@ export default function Home() {
     }
   }
 
+  // Fast validate SQL against live schema without AI
+  async function handleValidateSQLOnly() {
+    if (!sessionId || !isConnected) {
+      setSQLError("Connect to a database before analyzing SQL.");
+      return;
+    }
+
+    if (!sql.trim()) {
+      setSQLError("Enter an SQL query first.");
+      return;
+    }
+
+    setIsValidatingOnly(true);
+    setSQLError("");
+    setSQLResult(null);
+
+    try {
+      const response = await validateSQL(sessionId, sql);
+      const data = getResponseData(response) as Record<string, unknown>;
+      const result = (data.result ?? data) as Record<string, unknown>;
+
+      setSQLResult({
+        originalSql: sql,
+        validation: result.validation as Record<string, unknown>,
+      });
+    } catch (error) {
+      setSQLError(
+        error instanceof Error
+          ? error.message
+          : "Failed to validate SQL query."
+      );
+    } finally {
+      setIsValidatingOnly(false);
+    }
+  }
+
   // Copy suggested SQL.
   async function handleCopySQL(value: string) {
     try {
@@ -416,7 +502,7 @@ export default function Home() {
           <div className="sticky top-0 h-screen">
             <WorkspaceSidebar
               activeView={activeView}
-              onViewChange={setActiveView}
+              onViewChange={handleViewChange}
               isConnected={isConnected}
             />
           </div>
@@ -447,18 +533,25 @@ export default function Home() {
                 step={1}
               >
                 <DatabaseConnection
+                  engine={engine}
                   host={host}
                   port={port}
                   username={username}
                   password={password}
                   database={database}
+                  filepath={filepath}
+                  uri={uri}
+                  capabilities={capabilities}
                   isConnecting={isConnecting}
                   isConnected={isConnected}
+                  onEngineChange={setEngine}
                   onHostChange={setHost}
                   onPortChange={setPort}
                   onUsernameChange={setUsername}
                   onPasswordChange={setPassword}
                   onDatabaseChange={setDatabase}
+                  onFilepathChange={setFilepath}
+                  onUriChange={setUri}
                   onConnect={handleConnect}
                   onDisconnect={handleDisconnect}
                 />
@@ -525,6 +618,7 @@ export default function Home() {
                 <SQLExplainer
                   sql={sql}
                   isExplaining={isExplaining}
+                  isValidatingOnly={isValidatingOnly}
                   isConnected={isConnected}
                   result={sqlResult}
                   error={sqlError}
@@ -533,10 +627,11 @@ export default function Home() {
                     setSQLError("");
                   }}
                   onExplain={handleExplainSQL}
+                  onValidateOnly={handleValidateSQLOnly}
                   onCopy={handleCopySQL}
                 />
 
-                {isExplaining && <LoadingSpinner />}
+                {(isExplaining || isValidatingOnly) && <LoadingSpinner />}
               </SectionCard>
             )}
 
@@ -832,21 +927,28 @@ export default function Home() {
               </div>
             )}
 
-            {/* Schema Drift placeholder */}
+            {/* Schema Drift Analyzer */}
             {activeView === "drift" && (
               <SectionCard
                 title="Schema Drift"
-                description="Compare your application's expected database structure with the live database."
+                description="Detect discrepancies between queries extracted from code and your live database schema."
               >
-                <div className="rounded-xl border border-dashed border-white/15 p-6">
-                  <p className="font-medium text-white">
-                    Schema drift detection is the next feature to implement.
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
-                    This view is a placeholder and does not yet compare schemas.
-                  </p>
-                </div>
+                <SchemaDrift
+                  isConnected={isConnected}
+                  tables={tables}
+                  analysis={analysis}
+                  onNavigate={(view) => handleViewChange(view)}
+                />
               </SectionCard>
+            )}
+
+            {/* IDE Integration */}
+            {activeView === "ide" && (
+              <IDEIntegration
+                sessionId={sessionId}
+                isConnected={isConnected}
+                databaseName={database}
+              />
             )}
 
             {activeView !== "chat" && <AppFooter />}

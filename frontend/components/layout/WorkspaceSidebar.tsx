@@ -7,6 +7,7 @@ type WorkspaceView =
   | "sql"
   | "code"
   | "drift"
+  | "ide"
   | "connections";
 
 type WorkspaceSidebarProps = {
@@ -50,6 +51,12 @@ const navigation: {
     label: "Schema Drift",
     icon: "⇄",
     description: "Compare code and schema",
+  },
+  {
+    id: "ide",
+    label: "IDE Integration",
+    icon: "◩",
+    description: "VS Code extension setup",
   },
   {
     id: "connections",

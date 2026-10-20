@@ -1,0 +1,9 @@
+{
+  "name": "sample-school-app",
+  "version": "1.0.0",
+  "description": "Sample application used for testing DB Copilot validation and IDE extension",
+  "main": "src/index.js",
+  "dependencies": {
+    "mysql2": "^3.9.0"
+  }
+}

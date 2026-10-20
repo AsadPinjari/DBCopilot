@@ -2,19 +2,20 @@ const express = require("express");
 const multer = require("multer");
 
 const {
-  analyzeProjectZip
+  analyzeProjectZip,
+  analyzeProjectFiles,
 } = require("../services/codebase.service");
 
 const {
-  validateSelectQuery
-} = require("../services/sql-validation.service");
+  getAdapter,
+} = require("../adapters");
 
 const {
-  getSessionConfig
+  getSessionConfig,
 } = require("../services/session.service");
 
 const {
-  getDatabaseSchema
+  getDatabaseSchema,
 } = require("../services/schema.service");
 
 const router = express.Router();
@@ -23,7 +24,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
-    files: 1
+    files: 1,
   },
   fileFilter: (req, file, callback) => {
     const hasZipExtension = /\.zip$/i.test(file.originalname);
@@ -35,9 +36,58 @@ const upload = multer({
     }
 
     callback(null, true);
-  }
+  },
 });
 
+/**
+ * Validate all extracted SQL candidates in an analysis result against the live schema.
+ */
+function validateCodebaseResult(result, schema, config) {
+  let queriesValidated = 0;
+  let queriesValid = 0;
+  let queriesInvalid = 0;
+  let queriesUnsupported = 0;
+
+  const adapter = getAdapter(config.engine || "mysql");
+
+  for (const file of result.files) {
+    for (const candidate of file.sqlCandidates) {
+      candidate.validation = adapter.validateQuery(
+        candidate.sql,
+        schema
+      );
+
+      if (candidate.validation.status === "unsupported") {
+        queriesUnsupported++;
+      } else {
+        queriesValidated++;
+
+        if (candidate.validation.status === "invalid") {
+          queriesInvalid++;
+        } else {
+          queriesValid++;
+        }
+      }
+    }
+  }
+
+  result.summary.queriesValidated = queriesValidated;
+  result.summary.queriesValid = queriesValid;
+  result.summary.queriesInvalid = queriesInvalid;
+  result.summary.queriesUnsupported = queriesUnsupported;
+  result.meta = {
+    timestamp: new Date().toISOString(),
+    databaseName: config.database,
+    engine: "mysql",
+  };
+
+  return result;
+}
+
+/**
+ * POST /api/codebase/analyze
+ * Scans a ZIP archive uploaded from web or API client.
+ */
 router.post("/analyze", (req, res) => {
   upload.single("project")(
     req,
@@ -46,14 +96,14 @@ router.post("/analyze", (req, res) => {
       if (uploadError) {
         return res.status(400).json({
           success: false,
-          message: uploadError.message
+          message: uploadError.message,
         });
       }
 
       if (!req.file) {
         return res.status(400).json({
           success: false,
-          message: "Please select a project ZIP file."
+          message: "Please select a project ZIP file.",
         });
       }
 
@@ -62,7 +112,7 @@ router.post("/analyze", (req, res) => {
       if (!sessionId) {
         return res.status(400).json({
           success: false,
-          message: "Please provide a database sessionId."
+          message: "Please provide a database sessionId.",
         });
       }
 
@@ -73,59 +123,79 @@ router.post("/analyze", (req, res) => {
           return res.status(401).json({
             success: false,
             message:
-              "Database session is invalid or expired. Please reconnect."
+              "Database session is invalid or expired. Please reconnect.",
           });
         }
 
-        // Read the actual schema from the connected database.
         const schema = await getDatabaseSchema(config);
-
-        // Scan the uploaded project.
         const result = analyzeProjectZip(req.file.buffer);
-
-        let queriesValidated = 0;
-        let queriesInvalid = 0;
-        let queriesUnsupported = 0;
-
-        // Validate every extracted SQL candidate.
-        for (const file of result.files) {
-          for (const candidate of file.sqlCandidates) {
-            candidate.validation = validateSelectQuery(
-              candidate.sql,
-              schema
-            );
-
-            if (candidate.validation.status === "unsupported") {
-              queriesUnsupported++;
-            } else {
-              queriesValidated++;
-
-              if (candidate.validation.status === "invalid") {
-                queriesInvalid++;
-              }
-            }
-          }
-        }
-
-        result.summary.queriesValidated = queriesValidated;
-        result.summary.queriesInvalid = queriesInvalid;
-        result.summary.queriesUnsupported = queriesUnsupported;
+        const validated = validateCodebaseResult(result, schema, config);
 
         return res.json({
           success: true,
           message: "Project scan and schema validation completed.",
-          result
+          result: validated,
         });
       } catch (error) {
         console.error("Codebase analysis error:", error.message);
 
         return res.status(500).json({
           success: false,
-          message: "Project analysis or schema validation failed."
+          message: "Project analysis or schema validation failed.",
         });
       }
     }
   );
+});
+
+/**
+ * POST /api/codebase/analyze-files
+ * Scans an array of source files [{ path, content }] directly (ideal for IDE extension).
+ */
+router.post("/analyze-files", async (req, res) => {
+  const { sessionId, files } = req.body || {};
+
+  if (!sessionId) {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a database sessionId.",
+    });
+  }
+
+  if (!Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a non-empty array of files to analyze.",
+    });
+  }
+
+  try {
+    const config = getSessionConfig(sessionId);
+
+    if (!config) {
+      return res.status(401).json({
+        success: false,
+        message: "Database session is invalid or expired. Please reconnect.",
+      });
+    }
+
+    const schema = await getDatabaseSchema(config);
+    const result = analyzeProjectFiles(files);
+    const validated = validateCodebaseResult(result, schema, config);
+
+    return res.json({
+      success: true,
+      message: "Workspace files analysis and schema validation completed.",
+      result: validated,
+    });
+  } catch (error) {
+    console.error("Workspace file analysis error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to analyze workspace files.",
+    });
+  }
 });
 
 module.exports = router;

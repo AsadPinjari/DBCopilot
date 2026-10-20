@@ -25,12 +25,22 @@ async function request<T>(
 }
 
 export type ConnectDatabasePayload = {
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  database: string;
+  engine?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  database?: string;
+  filepath?: string;
+  uri?: string;
 };
+
+export function getCapabilities() {
+  return request<{ success: boolean; engines: Record<string, Record<string, string>> }>(
+    "/api/database/capabilities",
+    { method: "GET" }
+  );
+}
 
 export function connectDatabase(payload: ConnectDatabasePayload) {
   return request<Record<string, unknown>>("/api/database/connect", {
@@ -64,6 +74,15 @@ export function analyzeCodebase(file: File, sessionId: string) {
   return request<Record<string, unknown>>("/api/codebase/analyze", {
     method: "POST",
     body: formData,
+  });
+}
+
+/** Validate SQL against live schema without calling the AI service. */
+export function validateSQL(sessionId: string, sql: string) {
+  return request<Record<string, unknown>>("/api/sql/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId, sql }),
   });
 }
 
@@ -101,3 +120,49 @@ export function chatWithCopilot(
     }),
   });
 }
+
+/** Download analysis result as a JSON file in the browser. */
+export function downloadAnalysisReport(
+  analysis: unknown,
+  filename = "dbcopilot-report.json"
+): void {
+  const blob = new Blob([JSON.stringify(analysis, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+export type ExtensionInfo = {
+  success: boolean;
+  available: boolean;
+  filename: string;
+  name: string;
+  displayName: string;
+  version: string;
+  targetEngine: string;
+  sizeBytes: number;
+  sizeFormatted: string;
+  downloadUrl: string;
+  backendUrl: string;
+  commands: { id: string; title: string }[];
+  settings: { key: string; default: unknown; description: string }[];
+};
+
+export function getExtensionInfo() {
+  return request<ExtensionInfo>("/api/extension/info", { method: "GET" });
+}
+
+export function checkBackendHealth() {
+  return request<{ success: boolean; message: string; timestamp: string }>(
+    "/api/health",
+    { method: "GET" }
+  );
+}
+

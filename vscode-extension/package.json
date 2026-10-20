@@ -1,0 +1,132 @@
+{
+  "name": "dbcopilot",
+  "displayName": "DB Copilot",
+  "description": "AI-powered database development assistant, schema validation, and compatibility analyzer for VS Code",
+  "version": "1.0.0",
+  "publisher": "dbcopilot",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies",
+    "test": "node --test test/diagnostics.test.js"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:sql"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dbcopilot.connect",
+        "title": "DB Copilot: Connect Database",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "dbcopilot.disconnect",
+        "title": "DB Copilot: Disconnect Database",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "dbcopilot.analyzeWorkspace",
+        "title": "DB Copilot: Analyze Workspace",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dbcopilot.analyzeActiveFile",
+        "title": "DB Copilot: Analyze Active File",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "dbcopilot.validateSelection",
+        "title": "DB Copilot: Validate Selected SQL",
+        "icon": "$(check)"
+      },
+      {
+        "command": "dbcopilot.explainSelection",
+        "title": "DB Copilot: Explain Selected SQL with AI",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "dbcopilot.compareSchemaDrift",
+        "title": "DB Copilot: Compare Schema Drift",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "dbcopilot.showCapabilities",
+        "title": "DB Copilot: Show Engine Capabilities",
+        "icon": "$(info)"
+      },
+      {
+        "command": "dbcopilot.openFinding",
+        "title": "DB Copilot: Open Finding in Editor"
+      },
+      {
+        "command": "dbcopilot.applyCorrection",
+        "title": "DB Copilot: Apply Suggested Correction"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dbcopilot-explorer",
+          "title": "DB Copilot",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "dbcopilot-explorer": [
+        {
+          "id": "dbcopilot.statusView",
+          "name": "Database Connection & Status"
+        },
+        {
+          "id": "dbcopilot.findingsView",
+          "name": "Compatibility Findings"
+        },
+        {
+          "id": "dbcopilot.schemaView",
+          "name": "Schema Explorer"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DB Copilot",
+      "properties": {
+        "dbcopilot.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:5000",
+          "description": "URL of the DB Copilot backend API server."
+        },
+        "dbcopilot.sessionId": {
+          "type": "string",
+          "default": "",
+          "description": "Active database session ID. When set or after connecting, queries will be validated against this session."
+        },
+        "dbcopilot.autoAnalyzeOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run DB Copilot analysis when saving database-related files (.js, .ts, .sql)."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}

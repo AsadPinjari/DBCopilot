@@ -213,6 +213,76 @@ function analyzeProjectZip(buffer) {
     };
 }
 
+function analyzeProjectFiles(fileList) {
+    if (!Array.isArray(fileList)) {
+        throw new Error("fileList must be an array of { path, content } objects.");
+    }
+
+    if (fileList.length > MAX_FILES) {
+        throw new Error(`The file list contains too many items. Maximum: ${MAX_FILES}.`);
+    }
+
+    const files = [];
+    let totalScannedBytes = 0;
+
+    for (const item of fileList) {
+        if (!item || typeof item.path !== "string" || typeof item.content !== "string") {
+            continue;
+        }
+
+        const filePath = item.path.replace(/\\/g, "/");
+
+        // Reject unsafe paths, including absolute paths and traversal.
+        if (
+            filePath.startsWith("/") ||
+            /^[a-zA-Z]:/.test(filePath) ||
+            filePath.split("/").some(part => part === "..")
+        ) {
+            continue;
+        }
+
+        if (shouldIgnore(filePath)) continue;
+        if (!isSupportedSource(filePath)) continue;
+
+        const content = item.content;
+        const byteLength = Buffer.byteLength(content, "utf8");
+
+        if (byteLength > MAX_SOURCE_FILE_SIZE) continue;
+
+        totalScannedBytes += byteLength;
+        if (totalScannedBytes > MAX_TOTAL_SOURCE_SIZE) {
+            throw new Error("The total source size exceeds the analysis limit.");
+        }
+
+        if (content.includes("\0")) continue;
+
+        const databaseRelated = isDatabaseRelated(content);
+        if (!databaseRelated && path.extname(filePath).toLowerCase() !== ".sql") {
+            continue;
+        }
+
+        files.push({
+            path: filePath,
+            language: path.extname(filePath).slice(1),
+            databaseRelated,
+            sqlCandidates: extractSqlCandidates(content, filePath)
+        });
+    }
+
+    return {
+        summary: {
+            filesAnalyzed: files.length,
+            filesWithDatabaseCode: files.filter(file => file.databaseRelated).length,
+            sqlCandidatesFound: files.reduce(
+                (total, file) => total + file.sqlCandidates.length,
+                0
+            )
+        },
+        files
+    };
+}
+
 module.exports = {
-    analyzeProjectZip
+    analyzeProjectZip,
+    analyzeProjectFiles
 };
