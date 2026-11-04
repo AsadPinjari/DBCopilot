@@ -28,6 +28,7 @@ type SQLExplainResult = {
 };
 
 type SQLExplainerProps = {
+  engine?: string;
   sql: string;
   isExplaining: boolean;
   isValidatingOnly?: boolean;
@@ -197,7 +198,7 @@ function ValidationCard({
   );
 }
 
-const SAMPLE_QUERIES = [
+const SQL_SAMPLES = [
   {
     label: "Simple SELECT",
     sql: "SELECT * FROM orders WHERE id = 1;",
@@ -216,7 +217,42 @@ const SAMPLE_QUERIES = [
   },
 ];
 
+const MONGO_SAMPLES = [
+  {
+    label: "Find All",
+    sql: "db.students.find()",
+  },
+  {
+    label: "Filtered Find",
+    sql: "db.students.find({ status: 'active' })",
+  },
+  {
+    label: "Aggregation Pipeline",
+    sql: "db.orders.aggregate([ { $match: { status: 'completed' } }, { $group: { _id: '$customer_id', total: { $sum: '$amount' } } } ])",
+  },
+  {
+    label: "Missing Collection",
+    sql: "db.nonexistent_collection.find({})",
+  },
+];
+
+const REDIS_SAMPLES = [
+  {
+    label: "Safe SCAN",
+    sql: "SCAN 0 MATCH user:* COUNT 20",
+  },
+  {
+    label: "Blocking KEYS (Warn)",
+    sql: "KEYS user:*",
+  },
+  {
+    label: "HGETALL",
+    sql: "HGETALL user:1001",
+  },
+];
+
 export default function SQLExplainer({
+  engine = "mysql",
   sql,
   isExplaining,
   isValidatingOnly = false,
@@ -229,6 +265,20 @@ export default function SQLExplainer({
   onCopy,
 }: SQLExplainerProps) {
   const isBusy = isExplaining || isValidatingOnly;
+  const isMongo = engine === "mongodb" || engine === "mongo";
+  const isRedis = engine === "redis";
+
+  const samples = isMongo ? MONGO_SAMPLES : isRedis ? REDIS_SAMPLES : SQL_SAMPLES;
+  const queryLabel = isMongo
+    ? "MongoDB Query / Pipeline"
+    : isRedis
+    ? "Redis Command"
+    : "SQL Query";
+  const placeholderText = isMongo
+    ? "db.students.find({ status: 'active' })"
+    : isRedis
+    ? "SCAN 0 MATCH user:* COUNT 20"
+    : "SELECT * FROM orders WHERE status = 'completed';";
 
   return (
     <div className="space-y-5">
@@ -238,13 +288,13 @@ export default function SQLExplainer({
             htmlFor="sql-query"
             className="block text-sm font-medium text-slate-300"
           >
-            SQL Query
+            {queryLabel}
           </label>
 
           {/* Quick sample chips */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
             <span>Samples:</span>
-            {SAMPLE_QUERIES.map((sample) => (
+            {samples.map((sample) => (
               <button
                 key={sample.label}
                 type="button"
@@ -261,7 +311,7 @@ export default function SQLExplainer({
           id="sql-query"
           value={sql}
           onChange={(event) => onSQLChange(event.target.value)}
-          placeholder="SELECT * FROM orders WHERE status = 'completed';"
+          placeholder={placeholderText}
           rows={5}
           spellCheck={false}
           className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-500"

@@ -9,9 +9,7 @@ const {
   getDatabaseSchema,
 } = require("../services/schema.service");
 
-const {
-  validateSelectQuery,
-} = require("../services/sql-validation.service");
+const { getAdapter } = require("../adapters");
 
 const {
   explainSqlFinding,
@@ -67,19 +65,23 @@ router.post("/explain", async (req, res) => {
       cleanSql = cleanSql.slice(1, -1).trim();
     }
 
-    // Never trust a validation result supplied by the frontend.
-    const validation = validateSelectQuery(cleanSql, schema);
+    const engine = config.engine || "mysql";
+    const adapter = getAdapter(engine);
+
+    // Validate using the engine-specific adapter
+    const validation = adapter.validateQuery(cleanSql, schema);
 
     const aiResult = await explainSqlFinding({
       sql: cleanSql,
       validation,
       schema,
+      engine,
     });
 
     let suggestedValidation = null;
 
-    if (aiResult.suggestedSql.trim()) {
-      suggestedValidation = validateSelectQuery(
+    if (aiResult.suggestedSql && aiResult.suggestedSql.trim()) {
+      suggestedValidation = adapter.validateQuery(
         aiResult.suggestedSql,
         schema
       );

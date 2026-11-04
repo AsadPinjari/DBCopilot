@@ -96,13 +96,25 @@ router.post("/connect", async (req, res) => {
       }
     }
 
+    let resolvedDatabase = database;
+    if (normalizedEngine === "mongodb" && uri && !resolvedDatabase) {
+      try {
+        const { MongoClient } = require("mongodb");
+        const tmpClient = new MongoClient(uri);
+        const resolvedDb = tmpClient.db().databaseName;
+        if (resolvedDb && resolvedDb !== "test") {
+          resolvedDatabase = resolvedDb;
+        }
+      } catch {}
+    }
+
     const config = {
       engine: normalizedEngine,
       host,
       port: port ? Number(port) : undefined,
       username,
       password,
-      database,
+      database: resolvedDatabase,
       filePath: resolvedPath,
       uri,
       ssl,

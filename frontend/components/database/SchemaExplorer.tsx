@@ -44,6 +44,7 @@ type SchemaTable = {
 };
 
 type SchemaExplorerProps = {
+  engine?: string;
   tables: SchemaTable[];
   isInspecting: boolean;
   isConnected: boolean;
@@ -52,12 +53,17 @@ type SchemaExplorerProps = {
 };
 
 export default function SchemaExplorer({
+  engine = "mysql",
   tables,
   isInspecting,
   isConnected,
   error,
   onInspect,
 }: SchemaExplorerProps) {
+  const isMongo = engine === "mongodb" || engine === "mongo";
+  const entityLabel = isMongo ? "collection" : "table";
+  const entityLabelPlural = isMongo ? "collections" : "tables";
+
   const [expandedTables, setExpandedTables] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -99,7 +105,7 @@ export default function SchemaExplorer({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-slate-300">
-            {tables.length} {tables.length === 1 ? "table" : "tables"} detected
+            {tables.length} {tables.length === 1 ? entityLabel : entityLabelPlural} detected
           </p>
           {query && (
             <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs text-blue-400">
@@ -174,13 +180,13 @@ export default function SchemaExplorer({
 
       {isConnected && tables.length === 0 && !isInspecting && !error && (
         <p className="rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">
-          Click “Inspect Schema” to load the database tables.
+          Click “Inspect Schema” to load database {entityLabelPlural}.
         </p>
       )}
 
       {tables.length > 0 && filteredTables.length === 0 && (
         <p className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-center text-sm text-slate-400">
-          No tables or columns match &ldquo;{searchQuery}&rdquo;.
+          No {entityLabelPlural} or fields match &ldquo;{searchQuery}&rdquo;.
         </p>
       )}
 

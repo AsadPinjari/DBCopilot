@@ -51,7 +51,7 @@ router.post("/inspect", async (req, res) => {
     console.error("Schema inspect error:", error.message);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch database schema.",
+      message: error.message || "Failed to fetch database schema.",
     });
   }
 });

@@ -138,6 +138,19 @@ test("MongoDBAdapter validates aggregation pipeline stages", () => {
   assert.ok(invalidAgg.findings.some((f) => f.code === "INVALID_PIPELINE_STAGE"));
 });
 
+test("MongoDBAdapter validates db.students.find() and detects syntax bracket errors", () => {
+  const adapter = getAdapter("mongodb");
+  const schema = { database: "university", engine: "mongodb", tables: [{ name: "students" }] };
+
+  const validFind = adapter.validateQuery("db.students.find()", schema);
+  assert.equal(validFind.status, "valid");
+  assert.equal(validFind.findings.length, 0);
+
+  const syntaxError = adapter.validateQuery("db.students.find({ active: true", schema);
+  assert.equal(syntaxError.status, "invalid");
+  assert.ok(syntaxError.findings.some((f) => f.code === "SYNTAX_ERROR"));
+});
+
 test("RedisAdapter flags dangerous blocking commands (KEYS *) and destructive operations", () => {
   const adapter = getAdapter("redis");
 

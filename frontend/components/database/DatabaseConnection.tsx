@@ -194,10 +194,13 @@ export default function DatabaseConnection({
               <input
                 value={uri}
                 onChange={(e) => onUriChange(e.target.value)}
-                placeholder="mongodb://localhost:27017/store"
+                placeholder="mongodb://localhost:27017/dbcopilot_mongo_demo"
                 disabled={isConnecting || isConnected}
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-blue-500 disabled:opacity-60"
               />
+              <p className="mt-1 text-xs text-slate-400">
+                Tip: Specify a database name in the URI or leave blank to auto-discover all user databases.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -223,11 +226,11 @@ export default function DatabaseConnection({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-slate-300">Database Name</label>
+                <label className="mb-1 block text-sm text-slate-300">Database Name (Optional)</label>
                 <input
                   value={database}
                   onChange={(e) => onDatabaseChange(e.target.value)}
-                  placeholder="store"
+                  placeholder="e.g. dbcopilot_mongo_demo (blank to auto-detect)"
                   disabled={isConnecting || isConnected}
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-blue-500 disabled:opacity-60"
                 />

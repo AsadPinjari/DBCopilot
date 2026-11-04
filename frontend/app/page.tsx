@@ -615,11 +615,20 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
             {/* Schema Explorer */}
             {activeView === "schema" && (
               <SectionCard
-                title="Schema Explorer"
-                description="Inspect tables, columns, keys, and relationships."
+                title={
+                  engine === "mongodb"
+                    ? "Schema Explorer (MongoDB Collections)"
+                    : "Schema Explorer"
+                }
+                description={
+                  engine === "mongodb"
+                    ? "Inspect collections, inferred document fields, and indexes."
+                    : "Inspect tables, columns, keys, and relationships."
+                }
                 step={2}
               >
                 <SchemaExplorer
+                  engine={engine}
                   tables={tables}
                   isInspecting={isInspecting}
                   isConnected={isConnected}
@@ -662,11 +671,24 @@ export default function Home({ initialView }: { initialView?: WorkspaceView } = 
             {/* SQL Assistant */}
             {activeView === "sql" && (
               <SectionCard
-                title="SQL Assistant"
-                description="Understand queries, review validation findings, and inspect suggested SQL."
+                title={
+                  engine === "mongodb"
+                    ? "MongoDB Query Assistant"
+                    : engine === "redis"
+                    ? "Redis Command Assistant"
+                    : "SQL Assistant"
+                }
+                description={
+                  engine === "mongodb"
+                    ? "Validate MongoDB shell & aggregation queries against collections and explain with AI."
+                    : engine === "redis"
+                    ? "Validate Redis commands against keyspaces and analyze performance risks."
+                    : "Understand queries, review validation findings, and inspect suggested SQL."
+                }
                 step={4}
               >
                 <SQLExplainer
+                  engine={engine}
                   sql={sql}
                   isExplaining={isExplaining}
                   isValidatingOnly={isValidatingOnly}

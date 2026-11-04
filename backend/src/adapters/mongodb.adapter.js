@@ -33,15 +33,15 @@ class MongoDBAdapter extends BaseDatabaseAdapter {
 
     const host = config.host || "localhost";
     const port = Number(config.port) || 27017;
-    const db = config.database || "test";
+    const db = config.database ? `/${encodeURIComponent(config.database)}` : "";
 
     if (config.username && config.password) {
       const user = encodeURIComponent(config.username);
       const pass = encodeURIComponent(config.password);
-      return `mongodb://${user}:${pass}@${host}:${port}/${db}`;
+      return `mongodb://${user}:${pass}@${host}:${port}${db}`;
     }
 
-    return `mongodb://${host}:${port}/${db}`;
+    return `mongodb://${host}:${port}${db}`;
   }
 
   async testConnection(config) {
@@ -53,7 +53,8 @@ class MongoDBAdapter extends BaseDatabaseAdapter {
 
     try {
       await client.connect();
-      await client.db(config.database || "test").command({ ping: 1 });
+      const targetDb = config.database || "admin";
+      await client.db(targetDb).command({ ping: 1 });
       return true;
     } finally {
       await client.close();
@@ -62,7 +63,6 @@ class MongoDBAdapter extends BaseDatabaseAdapter {
 
   async inspectSchema(config) {
     const uri = this.buildUri(config);
-    const dbName = config.database || "test";
     const client = new MongoClient(uri, {
       serverSelectionTimeoutMS: CONNECTION_TIMEOUT_MS,
       connectTimeoutMS: CONNECTION_TIMEOUT_MS,
@@ -70,86 +70,137 @@ class MongoDBAdapter extends BaseDatabaseAdapter {
 
     try {
       await client.connect();
-      const db = client.db(dbName);
-      const collections = await db.listCollections().toArray();
+
+      // Determine target databases to inspect
+      let targetDatabases = [];
+      if (config.database && config.database !== "test") {
+        targetDatabases = [config.database];
+      } else {
+        // Check if connection string URI specified a database
+        let uriDb = "";
+        try {
+          uriDb = client.db().databaseName;
+        } catch {}
+
+        if (uriDb && uriDb !== "test") {
+          targetDatabases = [uriDb];
+        } else {
+          // Auto-discover non-system databases from cluster
+          try {
+            const adminDb = client.db().admin();
+            const dbsList = await adminDb.listDatabases();
+            const userDbs = (dbsList.databases || [])
+              .map((d) => d.name)
+              .filter((name) => !["admin", "local", "config"].includes(name));
+
+            targetDatabases = userDbs.length > 0 ? userDbs : [config.database || uriDb || "test"];
+          } catch {
+            targetDatabases = [config.database || uriDb || "test"];
+          }
+        }
+      }
 
       const schema = {
-        database: dbName,
+        database: targetDatabases.length === 1 ? targetDatabases[0] : (config.database || "mongodb"),
         engine: this.engine,
         category: "document",
         tables: [], // Presented as tables/collections in shared schema format
       };
 
-      for (const collInfo of collections) {
-        const collName = collInfo.name;
-        if (collName.startsWith("system.")) continue;
-
-        const coll = db.collection(collName);
-
-        // Fetch indexes
-        let indexes = [];
+      for (const dbName of targetDatabases) {
+        const db = client.db(dbName);
+        let collections = [];
         try {
-          indexes = await coll.indexes();
-        } catch {
-          indexes = [];
+          collections = await db.listCollections().toArray();
+        } catch (err) {
+          console.warn(`[MongoDBAdapter] Could not list collections for database "${dbName}":`, err.message);
+          continue;
         }
 
-        // Infer fields from sample documents (max 50)
-        const sampleDocs = await coll.find({}).limit(50).toArray();
-        const fieldMap = new Map();
+        for (const collInfo of collections) {
+          const collName = collInfo.name;
+          if (collName.startsWith("system.")) continue;
 
-        // Always ensure _id is present
-        fieldMap.set("_id", {
-          name: "_id",
-          type: "ObjectId",
-          primaryKey: true,
-          nullable: false,
-        });
+          const coll = db.collection(collName);
 
-        for (const doc of sampleDocs) {
-          for (const [key, value] of Object.entries(doc)) {
-            if (key === "_id") continue;
+          // Fetch indexes safely
+          let indexes = [];
+          try {
+            indexes = await coll.indexes();
+          } catch {
+            indexes = [];
+          }
 
-            const existing = fieldMap.get(key);
-            let valType = typeof value;
-            if (Array.isArray(value)) valType = "array";
-            else if (value === null) valType = "null";
-            else if (value instanceof Date) valType = "date";
-            else if (value && typeof value === "object" && value._bsontype) {
-              valType = value._bsontype;
-            }
+          // Infer fields from sample documents (max 50) safely
+          let sampleDocs = [];
+          try {
+            sampleDocs = await coll.find({}).limit(50).toArray();
+          } catch (err) {
+            console.warn(`[MongoDBAdapter] Could not sample collection "${collName}":`, err.message);
+          }
 
-            if (!existing) {
-              fieldMap.set(key, {
-                name: key,
-                type: valType,
-                primaryKey: false,
-                nullable: true,
-              });
+          const fieldMap = new Map();
+
+          // Always ensure _id is present
+          fieldMap.set("_id", {
+            name: "_id",
+            type: "ObjectId",
+            primaryKey: true,
+            nullable: false,
+          });
+
+          for (const doc of sampleDocs) {
+            if (!doc || typeof doc !== "object") continue;
+
+            for (const [key, value] of Object.entries(doc)) {
+              if (key === "_id") continue;
+
+              const existing = fieldMap.get(key);
+              let valType = typeof value;
+              if (Array.isArray(value)) valType = "array";
+              else if (value === null) valType = "null";
+              else if (value instanceof Date) valType = "date";
+              else if (value && typeof value === "object" && value._bsontype) {
+                valType = value._bsontype;
+              } else if (value && typeof value === "object") {
+                valType = "object";
+              }
+
+              if (!existing) {
+                fieldMap.set(key, {
+                  name: key,
+                  type: valType,
+                  primaryKey: false,
+                  nullable: true,
+                });
+              }
             }
           }
+
+          const columns = Array.from(fieldMap.values()).map((f) => ({
+            name: f.name,
+            type: f.type,
+            fullType: f.type,
+            nullable: f.nullable,
+            primaryKey: f.primaryKey,
+            unique: indexes.some((idx) => idx.unique && idx.key?.[f.name]),
+            foreignKey: false,
+          }));
+
+          const displayName = targetDatabases.length > 1 ? `${dbName}.${collName}` : collName;
+
+          schema.tables.push({
+            name: displayName,
+            database: dbName,
+            columns,
+            indexes: indexes.map((idx) => ({
+              name: idx.name,
+              keys: Object.keys(idx.key || {}),
+              unique: Boolean(idx.unique),
+            })),
+            relationships: [],
+          });
         }
-
-        const columns = Array.from(fieldMap.values()).map((f) => ({
-          name: f.name,
-          type: f.type,
-          fullType: f.type,
-          nullable: f.nullable,
-          primaryKey: f.primaryKey,
-          unique: indexes.some((idx) => idx.unique && idx.key?.[f.name]),
-          foreignKey: false,
-        }));
-
-        schema.tables.push({
-          name: collName,
-          columns,
-          indexes: indexes.map((idx) => ({
-            name: idx.name,
-            keys: Object.keys(idx.key || {}),
-            unique: Boolean(idx.unique),
-          })),
-          relationships: [],
-        });
       }
 
       return schema;
@@ -160,9 +211,66 @@ class MongoDBAdapter extends BaseDatabaseAdapter {
 
   validateQuery(queryString, schema) {
     const findings = [];
-    const knownCollections = new Set(
-      (schema.tables || []).map((t) => t.name.toLowerCase())
-    );
+
+    if (typeof queryString !== "string" || !queryString.trim()) {
+      return {
+        status: "invalid",
+        supported: true,
+        findings: [{ code: "EMPTY_QUERY", message: "Query string is empty." }],
+      };
+    }
+
+    // Check balanced parentheses, brackets, and braces
+    const stack = [];
+    let inQuotes = false;
+    let quoteChar = "";
+    for (let i = 0; i < queryString.length; i++) {
+      const char = queryString[i];
+      if (inQuotes) {
+        if (char === quoteChar && queryString[i - 1] !== "\\") {
+          inQuotes = false;
+        }
+        continue;
+      }
+      if (char === '"' || char === "'" || char === "`") {
+        inQuotes = true;
+        quoteChar = char;
+        continue;
+      }
+      if (char === "(" || char === "[" || char === "{") {
+        stack.push({ char, index: i });
+      } else if (char === ")" || char === "]" || char === "}") {
+        const last = stack.pop();
+        if (
+          !last ||
+          (char === ")" && last.char !== "(") ||
+          (char === "]" && last.char !== "[") ||
+          (char === "}" && last.char !== "{")
+        ) {
+          findings.push({
+            code: "SYNTAX_ERROR",
+            message: `Mismatched closing bracket "${char}" at position ${i + 1}.`,
+          });
+          break;
+        }
+      }
+    }
+    if (stack.length > 0 && !findings.some((f) => f.code === "SYNTAX_ERROR")) {
+      const unclosed = stack.pop();
+      findings.push({
+        code: "SYNTAX_ERROR",
+        message: `Unclosed bracket "${unclosed.char}" starting at position ${unclosed.index + 1}.`,
+      });
+    }
+
+    const knownCollections = new Set();
+    for (const t of (schema.tables || [])) {
+      const lower = (t.name || "").toLowerCase();
+      knownCollections.add(lower);
+      if (lower.includes(".")) {
+        knownCollections.add(lower.split(".").pop());
+      }
+    }
 
     // Check for collection name in db.<collection> or Model.<method>
     const collMatch = queryString.match(/(?:db\.([a-zA-Z0-9_]+)|\b([A-Z][a-zA-Z0-9_]+)\.(?:find|findOne|aggregate|updateOne|deleteMany))/);
